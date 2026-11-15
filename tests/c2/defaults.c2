@@ -1,0 +1,16 @@
+/* .c2: default values that use the other parameters, and defaults on function pointers */
+#include <stdio.h>
+typedef struct { float x, y; } V2;
+int box(int w, int h = 10, int d = w * 2 + h) { return w * 10000 + h * 100 + d; }
+int add(int a, int b) { return a * 100 + b; }
+V2 scale(V2 v, float k = v.x) { V2 r = {v.x * k, v.y * k}; return r; }
+int main(void) {
+    int w = 1000;                                      /* the caller's w is not the parameter */
+    printf("%d %d %d %d\n", box(1), box(2, 3), box(.h = 4, .w = 5), w);
+    int (*fp)(int a, int b = 7) = add;                 /* defaults of the pointer's type */
+    printf("%d %d\n", fp(1), fp(.b = 2, .a = 3));
+    V2 v = {2, 3};
+    V2 s = scale(v);
+    printf("%g %g\n", s.x, s.y);
+    return 0;
+}

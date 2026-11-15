@@ -1,0 +1,15 @@
+strtok a|b|c| spn 2 cspn 2 pbrk llo chr yz
+strtoul 4000000000 strtoll -77 atoll 123456789012 llabs 5
+div 3 2 ldiv -3 -2 lldiv 14 2
+math 1.175 3.000 0.500 4 0.75 3.00 2 -3 24.000 10.0 1 1 1
+ctype 1 1 1 1
+time 1971-01-01 00:00 yday 0 mktime_ok 1 diff 6
+timespec 1 1
+errno ERANGE 1 EDOM-set 1 msg 1
+inttypes 9223372036854775807 4294967295 ff 3
+iso646 1 0
+signal 1
+locale C
+strdup dup 15
+file 12 34 x err 0
+sizes 1 1

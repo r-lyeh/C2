@@ -1,0 +1,6 @@
+vadd 11.0 22.0  a 1.0  area 6.0  r.min.x 0.0
+make rect 9 3.0  copy Rect
+list 6 3 0 0 | 4 8 | a b 2 | 3 4 | abc 0
+globals 11 two glob 7 5 4 0 hi there 9 2.5 16
+ternary 1
+zero 0 0 0;zero 0 0 0;zero 0 0 0;

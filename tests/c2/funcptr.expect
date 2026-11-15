@@ -1,0 +1,6 @@
+add(7,3) = 10
+sub(7,3) = 4
+mul(7,3) = 21
+apply 42, pick 6, pick2 5, deref 25, call-expr 8
+1 2 3 5 7 9 | apple fig pear
+bsearch 4, fp-double 2.5, fp-float 1.50, table 3 16, eq 1 1

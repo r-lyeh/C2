@@ -1,0 +1,10 @@
+prec 21 -2 10 10 12
+bits 2 7 5 -7 6 1
+cmp 1 1 1
+cond 6 2 yes
+compound 2 412
+ptr 10 30 30 50 31 31 31 2
+incdec 7 16
+fp 6.50 1.50
+comma 3
+unsigned not/shift 15 -1

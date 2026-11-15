@@ -1,0 +1,5 @@
+/* .c2 file: the C² extensions are on */
+#if !defined(__C2__) || !defined(__C2_EXT__)
+#error "__C2__ and __C2_EXT__ must be defined in .c2 files"
+#endif
+int main(void) { return 0; }

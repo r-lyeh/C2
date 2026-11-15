@@ -1,0 +1,9 @@
+// file-scoped macros: MIN, SQ and MAX_ stay in this file; CLAMP and UTIL_VERSION are exported
+#pragma once
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define SQ(x) ((x) * (x))
+#define MAX_(a, b) ((a) > (b) ? (a) : (b))
+#define CLAMP(x, lo, hi) MIN(MAX_(x, lo), hi)
+#export CLAMP
+#export define UTIL_VERSION 3
+static int util_min(int a, int b) { return MIN(a, b); }

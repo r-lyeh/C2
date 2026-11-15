@@ -1,0 +1,37 @@
+/* .c2: implicit struct names, p.x on pointers, x.f() method calls, optional and named parameters */
+#include <stdio.h>
+#include <string.h>
+struct Vec { float x, y; };
+typedef struct Node Node;
+struct Node { int v; Node *next; };
+struct Counter { int n; };
+
+void add(Counter *c, int k = 1) { c->n += k; }            /* method by pointer, optional k */
+float dot(Vec a, Vec b) { return a.x * b.x + a.y * b.y; }  /* by value */
+int len(const char *s) { return (int)strlen(s); }
+int box(int w, int h = 10, int d = 4 * 2) { return w * 100 + h * 10 + d; }
+void print(Vec v, const char *label = "v") { printf("%s=(%g,%g)\n", label, v.x, v.y); }
+
+int main(void) {
+    Vec a = {1, 2}, b = {3, 4};
+    Vec *pa = &a;
+    printf("%g %g %g\n", pa.x, pa.y, a.dot(b));
+    Counter c = {0};
+    c.add();
+    c.add(5);
+    c.add(.k = 10);
+    Counter *pc = &c;
+    pc.add(100);
+    pc->add(1000);
+    printf("%d\n", c.n);
+    printf("%d %d\n", "hello".len(), len("ab"));
+    printf("%d %d %d %d\n", box(1), box(1, 2), box(1, 2, 3), box(.h = 5, .w = 2));
+    a.print();
+    b.print(.label = "b");
+    Node n2 = {2, NULL}, n1 = {1, &n2};
+    Node *p = &n1;
+    int sum = 0;
+    for (; p; p = p.next) sum += p.v;
+    printf("%d\n", sum);
+    return 0;
+}

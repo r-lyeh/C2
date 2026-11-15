@@ -1,0 +1,6 @@
+bool 1 1 0 1 1 1 sizeof 1
+fam 5 hello sizeof 4 offset 4
+align 8 16 1 off 16 size 32
+generic int double char * const char * struct Msg * bool other
+generic call 2.5 7
+hex 16 3 10.5 long-double 1.5

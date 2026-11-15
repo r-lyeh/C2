@@ -1,0 +1,200 @@
+// demo_tour.c2: a tour of C², one section per feature.     Run: c2 demo_tour.c2   (or: make tour)
+//
+// No #include lines: .c2 files get stddef, stdint, stdio, string, stdlib and math for free.
+// Not shown here: file-scoped macros (they need a .h2 header: see tests/c2/scoped.c2), C2_load
+// (see tests/abi) and hooks (__on_enter/__on_leave: they would trace every call below).
+
+#ifndef __C2_EXT__
+#error "save me as .c2"                         // shared headers can test __C2_EXT__ too
+#endif
+
+static void section(const char *title) { printf("\n== %s\n", title); }
+
+// ---------------------------------------------------------------- 1. struct names are type names
+struct Vec { float x, y; };                     // then just `Vec`, as in C++
+struct Player { const char *name; Vec pos; int hp, max_hp; };
+
+void tour_types(void) {
+    section("struct names are type names");
+    Vec v = { 3, 4 };
+    Player p = { "hero", v, 50, 100 };
+    printf("  Vec v = (%g, %g); Player %s has %d/%d hp\n", v.x, v.y, p.name, p.hp, p.max_hp);
+}
+
+// ---------------------------------------------------------------- 2. p.x on pointers
+void tour_pointers(void) {
+    section("p.x on a pointer means p->x");
+    Player hero = { "hero", { 1, 2 }, 100, 100 };
+    Player *p = &hero;
+    p.hp -= 30;                                 // no arrow needed
+    p.pos.x += 10;
+    printf("  %s at (%g, %g), hp %d\n", p.name, p.pos.x, p.pos.y, p->hp);   // -> still works
+}
+
+// ---------------------------------------------------------------- 3. method calls
+// x.f(a) calls f(x, a) when x has no member f; if f takes a pointer, &x is passed for you.
+Vec   add(Vec a, Vec b)               { return (Vec){ a.x + b.x, a.y + b.y }; }
+float len(Vec v)                      { return sqrtf(v.x * v.x + v.y * v.y); }
+void  move(Player *p, Vec by)         { p.pos = p.pos.add(by); }
+void  heal(Player *p, int amount = 10) { p.hp = p.hp + amount > p.max_hp ? p.max_hp : p.hp + amount; }
+int   chars(const char *s)            { return (int)strlen(s); }
+int   twice(int x)                    { return x * 2; }
+double len2(double x)                 { return x * x; }
+
+void tour_methods(void) {
+    section("method calls");
+    Player hero = { "hero", { 0, 0 }, 40, 100 };
+    hero.move((Vec){ 3, 4 });                   // move(&hero, ...): hero itself changes
+    hero.heal();                                // heal(&hero, 10): defaults work in methods
+    hero.heal(.amount = 25);                    // and so do named arguments
+    printf("  hero at (%g, %g), %g from the origin, hp %d\n", hero.pos.x, hero.pos.y, hero.pos.len(), hero.hp);
+    printf("  \"hello\".chars() = %d, 21.twice() = %d, 3.twice().twice() = %d, 2.5.len2() = %g\n",
+           "hello".chars(), 21.twice(), 3.twice().twice(), 2.5.len2());   // 2.5 is a float: len2(2.5)
+}
+
+// ---------------------------------------------------------------- 4. optional parameters
+// A default is evaluated at each call that leaves it out, and may use the parameters before it.
+int box(int w, int h = 10, int d = w * 2) { return w * h * d; }
+float lerp(float a, float b, float t = 0.5f) { return a + (b - a) * t; }
+const char *greet(const char *name = "stranger", const char *greeting = "hello") {
+    static char buf[64];
+    snprintf(buf, sizeof buf, "%s, %s!", greeting, name);
+    return buf;
+}
+
+void tour_defaults(void) {
+    section("optional parameters");
+    printf("  box(2) = %d   box(2, 3) = %d   box(2, 3, 4) = %d\n", box(2), box(2, 3), box(2, 3, 4));
+    printf("  lerp(0, 10) = %g   lerp(0, 10, 0.25) = %g\n", lerp(0, 10), lerp(0, 10, 0.25f));
+    printf("  %s   ", greet());
+    printf("%s   ", greet("Ada"));
+    printf("%s\n", greet("Ada", "welcome"));
+}
+
+// ---------------------------------------------------------------- 5. named arguments
+void spawn(const char *what, float x = 0, float y = 0, int count = 1, bool boss = false) {
+    printf("  spawn %d x %s at (%g, %g)%s\n", count, what, x, y, boss ? " [boss]" : "");
+}
+
+void tour_named(void) {
+    section("named arguments (after any positional ones)");
+    spawn("orc");
+    spawn("orc", 5, .count = 3);                // skip y, set count
+    spawn(.what = "bat", .y = 7);               // any order, defaults fill the rest
+    spawn("dragon", .boss = true, .x = 100);
+    printf("  greet(.greeting = \"hi\") = %s\n", greet(.greeting = "hi"));
+}
+
+// ---------------------------------------------------------------- 6. function pointers with defaults
+int damage(int base, int crit) { return base * crit; }
+
+void tour_fnptr(void) {
+    section("function pointers with their own defaults");
+    int (*hit)(int base, int crit = 1) = damage;     // the pointer's type carries the default
+    int (*crit_hit)(int base, int crit = 3) = damage;
+    printf("  hit(10) = %d   crit_hit(10) = %d   crit_hit(10, .crit = 5) = %d\n", hit(10), crit_hit(10), crit_hit(10, .crit = 5));
+}
+
+// ---------------------------------------------------------------- 7. zeroed locals
+void tour_zeroed(void) {
+    section("locals start zeroed (in .c they warn when read before being set)");
+    int counter; Vec v; char name[8]; Player *none; double sum;
+    printf("  %d (%g, %g) \"%s\" %s %g\n", counter, v.x, v.y, name, none == nullptr ? "null" : "?", sum);
+    for (int i = 0; i < 3; i++) {
+        int fresh;                              // zeroed every time the declaration runs
+        fresh += i;
+        printf("  fresh = %d\n", fresh);
+    }
+}
+
+// ---------------------------------------------------------------- 8. exact array lengths
+int sum3(int v[3])           { return v[0] + v[1] + v[2]; }     // exactly 3
+int sum_any(int v[static 3]) { return v[0] + v[1] + v[2]; }     // at least 3, as in C
+
+void tour_arrays(void) {
+    section("exact array lengths");
+    int three[3] = { 1, 2, 3 }, four[4] = { 10, 20, 30, 40 };
+    printf("  sum3(three) = %d   sum_any(four) = %d\n", sum3(three), sum_any(four));
+    // sum3(four) is an error: argument 1 of 'sum3' must be an array of 3 elements, not 4
+}
+
+// ---------------------------------------------------------------- 9. 8-character constants
+void tour_multichar(void) {
+    section("multi-character constants up to 8 characters");
+    long long tag = 'SAVEGAME';
+    int magic = 'PNG!';
+    printf("  'SAVEGAME' = 0x%llx   'PNG!' = 0x%x\n", tag, magic);
+    switch (tag) { case 'SAVEGAME': puts("  usable as case labels"); break; }
+}
+
+// ---------------------------------------------------------------- 10. nested functions
+int total(int list[3]) {
+    void echo(int *l) { printf("  [%d]+[%d]+[%d] = ", l[0], l[1], l[2]); }
+    int square(int x) { return x * x; }
+    int fact(int n) { return n <= 1 ? 1 : n * fact(n - 1); }   // recursion works
+    echo(list);
+    int sum = list[0] + list[1] + list[2];
+    printf("%d, squared %d, 5! = %d\n", sum, square(sum), fact(5));
+    return sum;
+}
+
+void tour_nested(void) {
+    section("nested functions");
+    int li[] = { 1, 2, 3 };
+    total(li);
+}
+
+// ---------------------------------------------------------------- 11. self tail calls
+long long count_down(long long n, long long acc) {
+    if (n == 0) return acc;
+    return count_down(n - 1, acc + n);          // becomes a loop: constant stack
+}
+int gcd(int a, int b) { return b == 0 ? a : gcd(b, a % b); }
+
+void tour_tailcalls(void) {
+    section("self tail calls run in constant stack");
+    printf("  count_down(1'000'000) = %lld, gcd(1071, 462) = %d\n", count_down(1'000'000, 0), gcd(1071, 462));
+}
+
+// ---------------------------------------------------------------- 12. C23, in .c files too
+enum Dir : unsigned char { NORTH, EAST, SOUTH, WEST };   // fixed underlying type
+#define LOG(fmt, ...) printf("  " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
+
+void tour_c23(void) {
+    section("C23 (available in .c files too)");
+    constexpr int MAX = 0b1000;                 // binary literal, named constant
+    int grid[MAX] = {};                         // empty initializer
+    auto speed = 2.5;                           // type inference
+    typeof(speed) twice = speed * 2;
+    bool ok = twice == 5.0 && sizeof grid == 32;
+    [[maybe_unused]] int unused;
+    static_assert(sizeof(enum Dir) == 1);       // message optional
+    LOG("auto/typeof/constexpr/bool: %s, 1'000'000 = %d", ok ? "true" : "false", 1'000'000);
+    LOG("__VA_OPT__ with no arguments");
+    static const unsigned char me[] = {
+#embed "demo_tour.c2" limit(14)
+    };
+    LOG("#embed of this file: \"%.14s\"", me);
+#ifdef __C2__
+    LOG("compiled by C² (__C2__), #elifdef works too");
+#elifdef __GNUC__
+    LOG("gcc");
+#endif
+}
+
+int main() {
+    puts("C² tour");
+    tour_types();
+    tour_pointers();
+    tour_methods();
+    tour_defaults();
+    tour_named();
+    tour_fnptr();
+    tour_zeroed();
+    tour_arrays();
+    tour_multichar();
+    tour_nested();
+    tour_tailcalls();
+    tour_c23();
+    return 0;
+}

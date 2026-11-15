@@ -1,0 +1,5 @@
+#ifndef SCOPED_GUARD_H2          // the guard is private too: re-including still sees it
+#define SCOPED_GUARD_H2
+#define HIDDEN 1
+int guarded = HIDDEN;
+#endif
