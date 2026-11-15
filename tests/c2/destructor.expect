@@ -1,0 +1,13 @@
+1 live=1
+live=1
+13 live=3
+live=1
+145 live=2
+1451 live=2
+if: live=2
+while: n=3 live=2
+for: live=2
+7 21 31 live=5
+switch: live=5
+4 live=5
+end: live=0 made=23

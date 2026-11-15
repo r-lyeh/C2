@@ -1,0 +1,2 @@
+#import "../c2/inc/mod_math"
+int main() { return clamp_(5); }

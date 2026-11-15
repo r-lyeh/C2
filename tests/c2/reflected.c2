@@ -1,0 +1,25 @@
+// global(path): globals and their parts by name; x.find(path); globals() (reflect_globals())
+#import "runtime"
+struct Vec { float x, y; };
+struct Player { string name; [[clamp(0, 100)]] int hp; Vec pos; array(int) bag; map(string, int) score; unsigned lvl : 4; Player *target; };
+Player player, other;
+[[skip]] int secret = 7;
+int frame = 3;
+int main() {
+    player.name = string("Ada"); player.hp = 75; player.pos = (Vec){3, 4}; player.lvl = 9;
+    array_push(player.bag, 10); array_push(player.bag, 20);
+    player.score.set(string("Bo"), 5);
+    other.hp = 33; player.target = &other;
+    const char *paths[] = {"player.hp", "player.pos.x", "/player/pos/y", "player.bag[1]", "player.bag[2]", "player.score[Bo]",
+                           "player.score.Bo", "player.lvl", "player.target.hp", "frame", "secret", "player.nope"};
+    for (int i = 0; i < 12; i++) {
+        any r = global(paths[i]);
+        string t = r.text();
+        printf("%s: %s (%s)%s\n", paths[i], t.data(), r.type ? r.type.name : "-", r.field && (r.field.flags & C2_CLAMP) ? " clamped" : "");
+        t.free();
+    }
+    any q = player.find("pos.y");
+    *(float *)q.p = 9;
+    printf("%g\n", player.pos.y);
+    for (const c2global *g = reflect_globals(); g.name; g++) printf("global %s: %s\n", g.name, g.type.name);
+}

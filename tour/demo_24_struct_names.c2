@@ -1,0 +1,8 @@
+// A struct, union or enum name is a typename as in C++: no `struct` keyword, no typedef.
+struct Vec { float x, y; };
+enum Dir { NORTH, EAST, SOUTH, WEST };
+int main() {
+    Vec v = {3, 4};
+    Dir d = EAST;
+    printf("%g %g %d\n", v.x, v.y, d);
+}

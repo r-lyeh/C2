@@ -1,0 +1,8 @@
+string: index 5 out of range [0, 2)
+script crashed (SIGABRT, abort()); call stack, innermost first:
+  string_at(str = 
+      n = 2
+, i = 5) at abort.c2:4
+) at abort.c2:5
+  main() at abort.c2:6
+      s = {...}

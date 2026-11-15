@@ -1,0 +1,8 @@
+// [[operator+]] makes + call a function for struct operands (+ - * / % == < [] += and unary -).
+struct vec2 { float x, y; };
+[[operator+]] vec2 vec2_add(vec2 a, vec2 b) { return vec2(a.x + b.x, a.y + b.y); }
+[[operator*]] vec2 vec2_scale(vec2 a, float k) { return vec2(a.x * k, a.y * k); }
+int main() {
+    vec2 v = vec2(1, 2) + vec2(3, 4) * 2;
+    printf("%g %g\n", v.x, v.y);   // 7 10
+}

@@ -1,0 +1,57 @@
+// x.json5() / x.save(path) (runtime/serial): every kind, [[rename]], [[skip]], pointers left out, the file
+// written whole (path.tmp, then renamed), and the copy macros take freed (owned members not shared)
+#import "runtime"
+#import "runtime/serial"
+enum Class { WARRIOR, MAGE };
+struct Vec { float x, y; };
+struct Item { string name; int count; };
+struct Hero {
+    string name;
+    [[rename("health")]] int hp;
+    Vec pos;
+    Class cls;
+    array(Item) bag;
+    map(const char *, int) skills;
+    map(Class, int) wins;
+    map(int, double) xp_by_level;
+    set(int) visited;
+    char tag[8];
+    const char *motto;
+    bool alive;
+    float speed;
+    double gold;
+    unsigned level : 5;
+    int mood : 3;
+    [[skip]] int frame_cache;
+    Hero *ally;
+    union { int i; float f; } either;
+    array(int) empty;
+    struct { int a, b; };
+};
+int main() {
+    Hero h = {"Ada \"the\" Bold\t✓", 75, {3, 4.5}, MAGE};
+    h.bag.push(Item("sword", 1)); h.bag.push(Item("potion", 3));
+    h.skills.set("fire", 3); h.skills.set("two words", 1);
+    h.wins.set(MAGE, 2); h.wins.set(WARRIOR, 0);
+    h.xp_by_level.set(1, 10.5); h.xp_by_level.set(2, 0.0 / 0.0);
+    h.visited.add(4); h.visited.add(9);
+    strcpy(h.tag, "hero"); h.motto = "onward\n"; h.alive = true; h.speed = 1.1f; h.gold = -1e300 * 1e10;
+    h.level = 17; h.mood = -2; h.a = 5; h.b = 6;
+    string s = h.json5();
+    printf("%s", s.data());
+    s.free();
+    printf("%s", (Vec(0.1f, -2)).json5().data());
+    printf("%s", (42).json5().data());
+    const char *path = "json5_save.out.json5";
+    bool ok = h.save(path);
+    FILE *f = fopen(path, "rb");
+    char buf[64] = {};
+    size_t n = f ? fread(buf, 1, 20, f) : 0;
+    if (f) fclose(f);
+    FILE *t = fopen("json5_save.out.json5.tmp", "rb");
+    printf("saved %d, starts %.12s, %zu bytes read, tmp left: %d\n", ok, buf, n, t != NULL);
+    if (t) fclose(t);
+    remove(path);
+    printf("unwritable: %d\n", h.save("no/such/dir/x.json5"));
+    h.free();
+}

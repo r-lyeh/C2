@@ -1,0 +1,44 @@
+// [[copy]]: a named T stored elsewhere (or returned when it isn't the function's own local) is copied,
+// so no two T share what the [[destructor]] frees.  Temporaries, (T){...} and ({ }) values move.
+#import "runtime"
+static int live, copies;
+struct res { int id; };
+res res(int id) { live++; return (res){id}; }
+[[destructor]] void res_free(res *r) { if (r.id) live--; r.id = 0; }
+[[copy]] res res_copy(const res *r) { copies++; return res(r.id); }
+struct player { res weapon; };
+res weapon_of(player *p) { return p.weapon; }       // a member: the caller gets a copy
+res make(int id) { res r = res(id); return r; }      // its own local: moved
+
+int main(void) {
+    res a = res(1);
+    res b = a;                                       // a copy
+    printf("b: live %d copies %d\n", live, copies);
+    b = a;                                           // the old b is freed, then a copy
+    b = b;                                           // copying itself is fine
+    printf("b = a: live %d copies %d\n", live, copies);
+    player p = {res(2)};
+    printf("weapon %d: live %d copies %d\n", weapon_of(&p).id, live, copies);   // the copy is a temporary
+    res c = make(3);
+    printf("make: live %d copies %d\n", live, copies);
+    res d = (res){4};                                // a fresh value moves (and was never counted)
+    res e = 1 ? a : c;                               // ?: of named ones: a copy
+    printf("?: %d live %d copies %d\n", e.id, live, copies);
+    array(res) bag;
+    array_push(bag, a);                              // a copy goes in
+    array_push(bag, res(5));                         // a temporary moves in
+    res last = array_pop(bag);                       // moves out
+    printf("bag: %d live %d copies %d\n", last.id, live, copies);
+    for (size_t i = 0; i < array_count(bag); i++) bag[i].free();
+    array_free(bag);
+    a.free(); b.free(); p.weapon.free(); c.free(); e.free(); last.free();
+    d.id = 0;
+    printf("end: live %d copies %d\n", live, copies);
+
+    string s = string("a string long enough to live on the heap");
+    string t = s;                                    // its own buffer: freeing both is fine
+    t += "!";
+    printf("%s | %s\n", s.data(), t.data());
+    s.free(); t.free();
+    return 0;
+}

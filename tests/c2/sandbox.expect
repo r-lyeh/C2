@@ -1,0 +1,8 @@
+fopen w: refused, EPERM 1
+fopen a+: refused
+unlink: -1, EPERM 1
+remove: -1, rename: -1
+system: -1
+dlopen: refused
+read: // flags: -sandbox
+save: 0

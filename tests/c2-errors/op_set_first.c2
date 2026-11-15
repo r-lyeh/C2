@@ -1,0 +1,2 @@
+struct V { float x; };
+[[operator+=]] void v_add_to(V a, V b);

@@ -1,0 +1,5 @@
+// return f(...) inside f becomes a loop: recursion of any depth in constant stack ([[musttail]] insists).
+long sum_to(long n, long acc) { if (n == 0) return acc; [[musttail]] return sum_to(n - 1, acc + n); }
+int main() {
+    printf("%ld\n", sum_to(10000000, 0));   // [[musttail]]: an error if it can't become a loop
+}

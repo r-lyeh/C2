@@ -1,0 +1,7 @@
+script crashed (SIGSEGV, a bad memory access); call stack, innermost first:
+  hit(e = NULL, dmg = 5) at coroutine.c2:5
+  wave(arg = NULL) at coroutine.c2:9
+      es = [...], i = 2
+  (a coroutine, resumed from:)
+  co_resume(c = 
+  main() at coroutine.c2:13

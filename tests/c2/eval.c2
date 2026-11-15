@@ -1,0 +1,27 @@
+// eval("heal(hero, 20)"): the program's functions by name, with defaults, named arguments, methods
+// (hero.hit(30): Hero_hit), globals or values as arguments; reflect_functions() lists them
+#import "runtime"
+#import "runtime/serial"
+enum Class { WARRIOR, MAGE };
+struct Vec { float x, y; };
+struct Hero { string name; int hp; Class cls; Vec pos; };
+Hero hero;
+int heal(Hero *h, int amount = 10, int bonus = amount / 2) { h.hp += amount + bonus; return h.hp; }
+int Hero_hit(Hero *h, int damage) { h.hp -= damage; return h.hp; }
+double half(double x) { return x / 2; }
+void greet(const char *who, Class c = MAGE) { printf("hi %s, %s\n", who, c == MAGE ? "mage" : "warrior"); }
+string title(Hero *h) { return f"Sir {h.name.data()}"; }
+float len(Vec v) { return sqrtf(v.x * v.x + v.y * v.y); }
+int main() {
+    hero.name = string("Ada"); hero.hp = 50; hero.pos = (Vec){3, 4};
+    const char *cmds[] = {"heal(hero)", "heal(hero, 4)", "heal(hero, bonus: 0)", "hero.hit(30)", "half(5)", "greet('Bo')",
+        "greet(Cy, WARRIOR)", "title(hero)", "len(hero.pos)", "len({x: 6, y: 8})", "heal()", "heal(hero, 'x')", "nope(1)",
+        "heal(hero, 1, 2, 3)", "heal(hero, amount: 1, amount: 2)", "hero.fly()"};
+    for (int i = 0; i < countof(cmds); i++) {
+        string r = {}, e = {};
+        bool ok = eval(cmds[i], &r, &e);
+        printf("%-34s %s %s%s", cmds[i], ok ? "->" : "!!", ok ? r.data() : "", ok ? "\n" : e.data());
+        r.free(); e.free();
+    }
+    hero.name.free();
+}

@@ -1,0 +1,19 @@
+// foreach_field(T, X): a compile-time loop, X(field) per field ([[skip]] left out, anonymous members' fields in);
+// &s.f on a small struct local (its members otherwise live in registers); typeof(a bit-field)
+#import "runtime"
+struct Vec { float x, y; };
+struct Hero { string name; int hp; Vec pos; [[skip]] int secret; struct { int gold, gems; }; unsigned lvl : 4; };
+#define SHOW(f) printf("%s: ", #f); h.f.print();
+#define DIFF(f) if (memcmp(&a.f, &b.f, sizeof a.f)) printf("%s differs\n", #f);
+#define COUNT(f) n++;
+int main() {
+    Hero h = {};
+    h.name = string("Ada"); h.hp = 7; h.pos = (Vec){1, 2}; h.gold = 3;
+    foreach_field(Hero, SHOW);
+    Vec a = {1, 2}, b = {1, 5};
+    foreach_field(Vec, DIFF)
+    int n = 0;
+    foreach_field(Hero, COUNT);
+    printf("%d fields\n", n);
+    h.name.free();
+}

@@ -1,0 +1,28 @@
+Player kind 10 size 120 fields 15 free 1 copy 1
+  name    char *           +0  bits 0 flags 0
+  hp      int              +8  bits 0 flags 0
+  pos     Vec              +12 bits 0 flags 0
+  facing  Dir              +20 bits 0 flags 0
+  flags   int              +20 bits 4 flags 0
+  title   string           +32 bits 0 flags 0
+  items   array(int)       +56 bits 0 flags 0
+  tag     char [8]         +64 bits 0 flags 0
+  bonus   map(int, float)  +72 bits 0 flags 0
+  seen    set(int)         +80 bits 0 flags 0
+  alive   bool             +88 bits 0 flags 0
+  speed   double           +96 bits 0 flags 0
+  next    Player *         +104 bits 0 flags 0
+  level   Level            +112 bits 0 flags 0
+  (the table still has secret, flags 1)
+EAST LOW none
+Player { name = "Ada", hp = 75, pos = Vec { x = 3, y = 4.5 }, facing = EAST, flags = -3, title = "the \"Bold\"", items = [1, 2], tag = "ab", bonus = {7: 1.5}, seen = {9, 3}, alive = true, speed = 2.25, next = NULL, level = HIGH }
+Vec | array(int) | Player *
+Vec { x = 3, y = 4.5 } faces EAST (1)
+Vec { x = 2, y = 4 }
+3.5
+"hi"
+'x'
+true
+[1, 2, 3]
+Bits { i = 7, f = 9.80909e-45 }
+map(int, float) unsigned short

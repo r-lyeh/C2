@@ -1,0 +1,4 @@
+// The module of demo_06_modules.c2 and demo_07_module_names.c2: only [[export]]ed names are public.
+static int calls;                                    // private, like everything not exported
+const char *greeting(void) { return "hello"; }       // private
+[[export]] void greet(const char *who) { calls++; printf("%s, %s (%d)\n", greeting(), who, calls); }

@@ -1,0 +1,1 @@
+:1: warning: tail call of 'f' stays a recursive call: it has '...'

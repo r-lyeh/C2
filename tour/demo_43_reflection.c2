@@ -1,0 +1,12 @@
+// Reflection: reflect(T) describes any type (fields, offsets, enum names), so code can walk a value:
+// x.print() prints one, f"{x}" formats a whole struct, each_member loops over the fields.
+#import "runtime"
+enum Class { WARRIOR, MAGE };
+struct Hero { string name; int hp; Class cls; [[skip]] int cache; };   // [[skip]]: left out
+int main() {
+    Hero h = {"Ada", 75, MAGE, 99};
+    h.print();                                         // Hero { name = "Ada", hp = 75, cls = MAGE }
+    for each_member(Hero, m) printf("%s: %s, ", m.name, m.type.name);
+    printf("\n%s\n", f"a {h.cls} with {h.hp} hp".data());
+    h.free();                                        // Hero_free: frees its name
+}

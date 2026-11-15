@@ -1,0 +1,5 @@
+#import "runtime"
+int main() {
+    string s = string("hi");
+    for (int c : s) printf("%d", c);
+}

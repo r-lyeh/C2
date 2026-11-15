@@ -1,0 +1,3 @@
+defer 3
+defer 2
+defer main

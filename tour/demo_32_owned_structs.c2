@@ -1,0 +1,14 @@
+// A struct whose members have a destructor and a copy gets both too, member by member: nothing to write
+// for objects made of owned parts.  (Unless it defines hero_free / hero_copy itself.)
+struct buf { char *p; };
+buf buf(const char *s) { return (buf){strdup(s)}; }
+[[destructor]] void buf_free(buf *b) { free(b.p); b.p = NULL; }
+[[copy]] buf buf_copy(const buf *b) { return buf(b.p); }
+struct hero { buf name; buf title; int hp; };    // gets hero_free and hero_copy
+int main() {
+    hero a = {buf("Ada"), buf("the Bold"), 100};
+    hero b = a;                                   // hero_copy: copies both bufs
+    b.name.p[0] = 'E';
+    printf("%s %s | %s %s\n", a.name.p, a.title.p, b.name.p, b.title.p);   // Ada the Bold | Eda the Bold
+    a.free(); b.free();                           // hero_free: frees both bufs
+}

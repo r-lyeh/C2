@@ -1,0 +1,5 @@
+script crashed (SIGSEGV, a bad memory access); call stack, innermost first:
+  pick(table = NULL, n = 3, scale = 2.5, tag = 'z', on = false) at locals.c2:8
+      sum = 0, v = {...}, i = 0, got = 
+  main() at locals.c2:17
+      ok = [...], a = 112, f = 2.5

@@ -1,0 +1,16 @@
+// try/throw: throw(code) returns at once through every call in between, up to try(), which returns the
+// code (0: no throw).  Like a coroutine's yield it leaves code midway, but for good, and cleanly: the
+// defers it passes run, and their temporaries are destroyed.
+#import "runtime"
+void check(int hp) { if (hp <= 0) throw(1); }
+void turn(void *hp) {
+    defer puts("end of turn");                      // runs on a throw too
+    check(*(int *)hp);
+    puts("still alive");
+}
+int main() {
+    int hp = 10;
+    printf("try: %d\n", try(turn, &hp));    // still alive, end of turn, 0
+    hp = 0;
+    printf("try: %d\n", try(turn, &hp));    // end of turn, 1
+}

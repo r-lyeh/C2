@@ -1,0 +1,11 @@
+// .c2: a number followed by .name() is a method call; float literals keep their meaning
+int twice(int x) { return x * 2; }
+double half(double x) { return x / 2; }
+float third(float x) { return x / 3; }
+int shl(int x, int by = 1) { return x << by; }
+int main() {
+    printf("%d %g %g %g %d %d %d\n", 21.twice(), 21.0.half(), 21.f.third(), 21.half(), 0x10.twice(), 3u.twice(), 4.twice().twice());
+    printf("%d %d %d\n", 5.shl(), 5.shl(3), 5.shl(.by = 2));
+    printf("%g %g %g %g %g %g %g\n", 21., 21.e1, 21.e+1, 21.f, 1.5e-1, 0x1.8p3, 0x1.p1);
+    return 0;
+}

@@ -1,0 +1,6 @@
+// flags: -g
+// c2 -g: a crash prints the script's call stack, here an abort() from an out-of-range string index
+#import "runtime"
+void show(string *s, int i) { printf("%c\n", (*s)[i]); }
+void scene(string *s) { show(s, 1); show(s, 5); }
+int main() { string s = string("ab"); scene(&s); }

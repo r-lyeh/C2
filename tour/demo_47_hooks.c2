@@ -1,0 +1,6 @@
+// Define __on_enter / __on_leave and every function calls them: tracing, profilers, call stacks.
+void __on_enter(const char *func, const char *file, int line) { printf("-> %s\n", func); }
+int twice(int x) { return 2 * x; }
+int main() {
+    printf("%d\n", twice(21));
+}

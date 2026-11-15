@@ -1,0 +1,7 @@
+// A function named like its type is that type's constructor: with defaults and named arguments.
+struct vec3 { float x, y, z; };
+vec3 vec3(float x = 1, float y = 2, float z = 3) { return (vec3){x, y, z}; }
+int main() {
+    vec3 v = vec3(z: 30);
+    printf("%g %g %g\n", v.x, v.y, v.z);   // 1 2 30
+}

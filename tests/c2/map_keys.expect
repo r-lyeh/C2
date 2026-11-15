@@ -1,0 +1,9 @@
+count 2, 7 12, has 1 0
+bo 8 cy 1 count 3
+del 1 0 count 2
+bo=8 cy=1 
+words 2: 1 0
+words 1: 0
+seen 2: 1 0 1
+points 1: still home
+cleared 0

@@ -1,0 +1,15 @@
+0 21/24 `Hello magnificent wor`
+0 22/24 `Hello magnificent worl`
+0 23/24 `Hello magnificent world`
+1 24/25 `Hello magnificent world|`
+1 25/26 `Hello magnificent world|e`
+abc-42-xabc 11 1
+41 36 `2-xabc012345678901234567890123456789`
+0 5 `short`
+0 0
+20 32 361 361
+361 19 0 2 325
+325 290 257 0 0 | 5
+1 5 5 2
+[alice] [a name long enough to live on the heap] 
+0 1

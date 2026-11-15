@@ -1,0 +1,6 @@
+// A function pointer type can have defaults of its own: the same function, called two ways.
+int hit(int damage, int crit) { return damage * crit; }
+int main() {
+    int (*strike)(int damage, int crit = 3) = hit;
+    printf("%d %d\n", strike(10), strike(10, 5));   // 30 50
+}

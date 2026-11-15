@@ -1,0 +1,1 @@
+mixed_export.c2:3: error: overloads of 'area' must all be [[export]]ed, or none

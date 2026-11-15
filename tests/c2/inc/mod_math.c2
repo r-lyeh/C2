@@ -1,0 +1,15 @@
+// a module: only [[export]]ed names are public
+int calls;                                   // private global
+static int twice_(int x) { return x * 2; }   // private (static or not)
+int clamp_(int x) { return x < 0 ? 0 : x > 100 ? 100 : x; }   // private
+
+[[export]] struct Vec { float x, y; };
+[[export]] enum Shape { CIRCLE, BOX };
+enum Hidden { SECRET = 7 };                  // private enum and constants
+struct Box { int calls; };                   // private type; member named like a private global
+
+[[export]] int add(int a, int b) { calls++; return clamp_(a + b); }
+[[export]] int twice(int x) { return twice_(x); }
+[[export]] int count(void) { struct Box b = {calls}; return b.calls + SECRET * 0; }
+[[export]] float vlen(Vec v) { return sqrtf(v.x * v.x + v.y * v.y); }
+[[export]] int scale(int value, int by = 2) { return value * by; }

@@ -1,0 +1,4 @@
+int main() {
+    int n = 3, k = 2;
+    for (int i : 0..n..k) printf("%d", i);
+}

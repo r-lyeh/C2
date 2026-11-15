@@ -1,0 +1,2 @@
+:4: warning: the result of 'must_use' is discarded
+:5: warning: 'old_api' is deprecated: use new_api()

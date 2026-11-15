@@ -1,0 +1,2 @@
+#import "runtime/string"
+int main(void) { int n = 1; string s = f"{n:>5}"; return (int)s.len(); }

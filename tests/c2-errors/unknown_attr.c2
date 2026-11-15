@@ -1,0 +1,4 @@
+// unknown attributes in .c2 files: a warning (a typo would otherwise be ignored without a word)
+[[nodiscrad]] int f(void) { return 1; }
+[[gnu::cold, maybe_unused]] static int g(void) { return 2; }
+int main() { return f() + g() == 3 ? 0 : 1; }

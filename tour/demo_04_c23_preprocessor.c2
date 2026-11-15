@@ -1,0 +1,17 @@
+// The C23 preprocessor: #embed a file's bytes, __VA_OPT__, #elifdef; __C2__ and __C2_EXT__ tell C² apart.
+#ifndef __C2_EXT__
+#error "save me as .c2"                           // set in .c2 files only: shared headers can test it
+#endif
+#define LOG(fmt, ...) printf(fmt "\n" __VA_OPT__(,) __VA_ARGS__)
+int main() {
+    static const char me[] = {
+#embed "demo_04_c23_preprocessor.c2" limit(23)
+    , 0 };
+    LOG("this file starts with \"%s\"", me);
+    LOG("__VA_OPT__ drops the comma when there are no arguments");
+#ifdef __C2__
+    LOG("compiled by C2");
+#elifdef __GNUC__
+    LOG("compiled by gcc");
+#endif
+}

@@ -1,0 +1,255 @@
+// runtime/string.c2: string with small-string optimization: up to 23 chars inline, longer on the heap.
+// [ref] https://github.com/elliotgoodrich/SSO-23 (the size is stored as is, so a zeroed string is empty)
+// Methods: s.assign("x") calls string_assign(&s, "x"), so these names never clash with other types.
+// A module: #import "runtime/string".  Only the [[export]]ed names are public.
+// string("hi"), a + b, a - b, f"{a}!" make new strings: temporaries, freed by the [[destructor]] at the
+// end of their statement unless stored (string s = a + b;), assigned or returned.
+#include <stdarg.h>
+
+[[export]] union string {
+    struct string_long {
+        char* buffer;
+        size_t size;
+        size_t capacity : 63;
+        size_t is_long : 1;
+    } l;
+    struct string_short {
+        char buffer[sizeof(struct string_long)-1];
+        unsigned char size : 7;
+        unsigned char is_long : 1;
+    } s;
+};
+
+enum { STRING_SHORT = sizeof(struct string_long)-1 }; // 23
+
+static_assert(sizeof(string) == STRING_SHORT + 1);
+
+[[export, pure]] bool string_is_long(string *str) {
+    return str.l.is_long;
+}
+
+[[export, pure]] char* string_data(string *str) {
+    return str.is_long() ? str.l.buffer : str.s.buffer;
+}
+
+[[export, pure]] size_t string_len(string *str) {
+    return str.is_long() ? str.l.size : (str.s.size ? str.s.size : !!str.s.buffer[0] * STRING_SHORT);
+}
+
+[[export, pure]] size_t string_cap(string *str) { // bytes, terminator included
+    return str.is_long() ? str.l.capacity : STRING_SHORT + 1;
+}
+
+// grows to `bytes`; returns `s` moved along if it pointed into str itself
+const char* string_grow_(string *str, size_t bytes, const char *s) {
+    char *old = str.data(), *p;
+    size_t at = s >= old && s < old + str.cap() ? (size_t)(s - old) : SIZE_MAX;
+    if( str.is_long() ) p = realloc(old, bytes);
+    else if( (p = malloc(bytes)) ) memcpy(p, old, str.cap());
+    if( !p ) { fprintf(stderr, "string: out of memory (%zu bytes)\n", bytes); abort(); }
+    str.l.buffer = p;
+    str.l.capacity = bytes;
+    str.l.is_long = 1;
+    return at != SIZE_MAX ? p + at : s;
+}
+
+void string_setlen_(string *str, size_t l) {
+    if( str.is_long() ) {
+        str.l.size = l;
+        str.l.buffer[l] = '\0';
+    } else {
+        str.s.size = l;
+        str.s.buffer[l] = '\0'; // l == 23: the '\0' lands on the size byte (size 0, buffer[0] != 0)
+    }
+}
+
+[[export]] string* string_assign(string *str, const char *s, size_t len = SIZE_MAX) {
+    size_t l = len != SIZE_MAX ? len : strlen(s);
+    if( l >= str.cap() ) s = string_grow_(str, l+1, s); // exact size
+    memmove(str.data(), s, l);                          // s may point into str itself
+    string_setlen_(str, l);
+    return str;
+}
+
+[[export, operator+=]] string* string_append(string *str, const char *s, size_t len = SIZE_MAX) {   // s += "x"
+    size_t l = len != SIZE_MAX ? len : strlen(s), n = str.len();
+    if( n + l >= str.cap() ) s = string_grow_(str, n + l + 1 > 2 * str.cap() ? n + l + 1 : 2 * str.cap(), s); // doubles
+    memmove(str.data() + n, s, l);
+    string_setlen_(str, n + l);
+    return str;
+}
+
+// its hash (FNV-1a over the text): with == it makes string a map or set key, compared by its text
+[[export, pure]] unsigned long long string_hash(string *str) {
+    const unsigned char *p = (const unsigned char *)str.data();
+    unsigned long long h = 1469598103934665603ULL;
+    for (size_t i = 0, n = str.len(); i < n; i++) h = (h ^ p[i]) * 1099511628211ULL;
+    return h;
+}
+
+[[export, destructor]] void string_free(string *str) {
+    if( str.is_long() )
+        free(str.l.buffer);
+    memset(str, 0, sizeof(string));
+}
+
+[[export]] void string_debug(string *str) {
+    printf("%d %zu/%zu `%s`+\\0\n", str.is_long(), str.len(), str.cap(), str.data());
+}
+
+// ----------------------------------------------------------------------------
+// extras
+
+[[export]] string* string_appendv(string *str, const char *fmt, va_list ap) {
+    va_list ap2;
+    va_copy(ap2, ap);
+    int l = vsnprintf(NULL, 0, fmt, ap);
+    if( l > 0 ) {
+        size_t n = str.len();
+        if( n + l >= str.cap() ) string_grow_(str, n + l + 1 > 2 * str.cap() ? n + l + 1 : 2 * str.cap(), NULL);
+        vsnprintf(str.data() + n, l + 1, fmt, ap2);
+        string_setlen_(str, n + l);
+    }
+    va_end(ap2);
+    return str;
+}
+
+[[export]] string* string_appendf(string *str, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    string_appendv(str, fmt, ap);
+    va_end(ap);
+    return str;
+}
+
+[[export]] string string_fmt(const char *fmt, ...) {   // what f"..." calls: f"{x} apples" is string_fmt("%d apples", x)
+    string r;
+    va_list ap;
+    va_start(ap, fmt);
+    string_appendv(&r, fmt, ap);
+    va_end(ap);
+    return r;
+}
+
+[[export, copy]] string string_copy(string *str) {   // [[copy]]: string b = a; stores a copy
+    string r;                                           // zeroed, as every C² local
+    r.assign(str.data(), str.len());
+    return r;
+}
+
+[[export, pure, operator==]] bool string_equal(string *str, const char *s) {   // s == "hi", s != "hi"
+    return strcmp(str.data(), s) == 0;
+}
+
+[[export]] string* string_clear(string *str) { // keeps the capacity
+    string_setlen_(str, 0);
+    return str;
+}
+
+// keeps the first len bytes (nothing happens if it's shorter)
+[[export]] string* string_truncate(string *str, size_t len) {
+    if (len < string_len(str)) string_setlen_(str, len);
+    return str;
+}
+[[export]] string* string_reserve(string *str, size_t bytes) { // terminator included, as cap()
+    if( bytes > str.cap() ) string_grow_(str, bytes, NULL);
+    return str;
+}
+
+[[export]] string string(const char *s, size_t len = SIZE_MAX) {   // the constructor: string("hi")
+    string r;                                           // zeroed, as every C² local
+    r.assign(s, len);
+    return r;
+}
+
+// ----------------------------------------------------------------------------
+// operators
+
+[[export, pure, operator==]] bool string_equal_s(string *str, string *s) {      // a == b
+    return str.len() == s.len() && memcmp(str.data(), s.data(), str.len()) == 0;
+}
+
+[[export, operator+=]] string* string_append_s(string *str, string *s) {  // a += b
+    return str.append(s.data(), s.len());
+}
+
+[[export, operator[]]] char* string_at(string *str, long i) {             // s[0], s[-1] (the last char)
+    long n = (long)str.len();
+    if( i < 0 ) i += n;
+    if( i < 0 || i >= n ) { fprintf(stderr, "string: index %ld out of range [0, %ld)\n", i < 0 ? i - n : i, n); abort(); }
+    return str.data() + i;
+}
+
+[[export, operator+]] string string_concat(string *a, const char *b) {    // a + "x": a new string
+    string r;
+    r.reserve(a.len() + strlen(b) + 1);
+    r.append(a.data(), a.len());
+    r.append(b);
+    return r;
+}
+
+[[export, operator+]] string string_concat_s(string *a, string *b) {      // a + b
+    string r;
+    r.reserve(a.len() + b.len() + 1);
+    r.append(a.data(), a.len());
+    r.append(b.data(), b.len());
+    return r;
+}
+
+[[export, operator+=]] string* string_append_c(string *str, char c) {      // s += 'x'
+    return str.append(&c, 1);
+}
+
+[[export, operator+]] string string_prepend(const char *a, string *b) {   // "x" + b
+    string r;
+    size_t n = strlen(a);
+    r.reserve(n + b.len() + 1);
+    r.append(a, n);
+    r.append(b.data(), b.len());
+    return r;
+}
+
+[[pure]] static int string_cmp_(const char *a, size_t an, const char *b, size_t bn) {
+    int c = memcmp(a, b, an < bn ? an : bn);
+    return c ? c : (an > bn) - (an < bn);
+}
+[[export, pure, operator<]] bool string_less(string *a, string *b) {            // a < b, and so > <= >=: sorting
+    return string_cmp_(a.data(), a.len(), b.data(), b.len()) < 0;
+}
+[[export, pure, operator<]] bool string_less_c(string *a, const char *b) {      // a < "x"
+    return string_cmp_(a.data(), a.len(), b, strlen(b)) < 0;
+}
+[[export, pure, operator<]] bool string_less_cs(const char *a, string *b) {     // "x" < b (and so b > "x")
+    return string_cmp_(a, strlen(a), b.data(), b.len()) < 0;
+}
+
+[[export, operator-=]] string* string_remove(string *str, const char *s, size_t len = SIZE_MAX) {   // every s, in place
+    size_t l = len != SIZE_MAX ? len : strlen(s), n = str.len(), w = 0;
+    if( !l ) return str;
+    char *d = str.data();
+    for( size_t i = 0; i < n; ) {
+        if( i + l <= n && memcmp(d + i, s, l) == 0 ) i += l;
+        else d[w++] = d[i++];
+    }
+    string_setlen_(str, w);
+    return str;
+}
+
+[[export, operator-=]] string* string_remove_s(string *str, string *s) {  // a -= b
+    string t = s.copy();                                // (s may be str itself)
+    str.remove(t.data(), t.len());
+    t.free();
+    return str;
+}
+
+[[export, operator-]] string string_minus(string *a, const char *b) {     // a - "x": a without any "x"
+    string r = a.copy();
+    r.remove(b);
+    return r;
+}
+
+[[export, operator-]] string string_minus_s(string *a, string *b) {       // a - b
+    string r = a.copy();
+    r.remove(b.data(), b.len());
+    return r;
+}

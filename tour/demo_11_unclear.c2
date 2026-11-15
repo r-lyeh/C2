@@ -1,0 +1,6 @@
+// [[unclear]] (or [[indeterminate]] as in C++26) removes the cost of auto-zeroing on big buffers.
+int main() {
+    [[unclear]] char buf[1 << 16];
+    snprintf(buf, sizeof buf, "filled by hand");
+    puts(buf);
+}

@@ -1,0 +1,8 @@
+// With structs come pointers to them: `.` works on those too, so p.x means p->x.
+struct Vec { float x, y; };
+void grow(Vec *p) { p.x *= 2; p.y *= 2; } // arrows on pointers are optional
+int main() {
+    Vec v = {3, 4};
+    grow(&v);
+    printf("%g %g\n", v.x, v.y);   // 6 8
+}

@@ -1,0 +1,50 @@
+#import "runtime"
+
+struct Vec { float x, y; };
+int by_desc(const void *a, const void *b) { return *(int *)b - *(int *)a; }
+
+int main() {
+    string s;
+    const char *hello = "Hello magnificent world|extra";
+    for (int i = 21; i < 26; ++i) {
+        s.assign(hello, i);
+        printf("%d %zu/%zu `%s`\n", s.is_long(), s.len(), s.cap(), s.data());
+    }
+    s.clear().append("abc").appendf("-%d-%s", 42, "x").append(s.data(), 3);   // appends its own start
+    printf("%s %zu %d\n", s.data(), s.len(), s.equal("abc-42-xabc"));
+    for (int i = 0; i < 3; i++) s.append("0123456789");
+    string t = s.copy();
+    t.assign(t.data() + 5);                                    // assigns from itself
+    printf("%zu %zu `%s`\n", s.len(), t.len(), t.data());
+    string u = string("short");
+    printf("%d %zu `%s`\n", u.is_long(), u.len(), u.data());
+    s.free(); t.free(); u.free();
+    printf("%zu %d\n", s.len(), s.is_long());
+
+    array(int) a;
+    for (int i = 0; i < 20; i++) array_push(a, i * i);
+    printf("%zu %zu %d %d\n", array_count(a), array_cap(a), a[19], array_last(a));
+    int last = array_pop(a);
+    array_insert(a, 0, -1);
+    array_erase(a, 1);
+    array_foreach(a, it) *it += 1;
+    printf("%d %zu %d %d %d\n", last, array_count(a), a[0], a[1], array_last(a));
+    array_sort(a, by_desc);
+    array(int) b = array_copy(a);
+    array_resize(b, 3);
+    array_resize(b, 5);
+    printf("%d %d %d %d %d | %zu\n", b[0], b[1], b[2], b[3], b[4], array_count(b));
+    array(Vec) vs;
+    array_push(vs, (Vec){1, 2});
+    array_push(vs, (Vec){.y = 5});
+    printf("%g %g %g %zu\n", vs[0].x, vs[1].y, array_last(vs).y, array_count(vs));
+    array(string) names;
+    array_push(names, string("alice"));
+    array_push(names, string("a name long enough to live on the heap"));
+    array_foreach(names, n) printf("[%s] ", n.data());
+    array_foreach(names, n) n.free();
+    puts("");
+    array_free(a); array_free(b); array_free(vs); array_free(names);
+    printf("%zu %d\n", array_count(a), a == NULL);
+    return 0;
+}

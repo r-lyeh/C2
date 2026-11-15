@@ -1,0 +1,7 @@
+[[nodiscard]] int must_use(int x) { return x * 2; }
+[[deprecated("use new_api()")]] int old_api(int x) { return x; }
+int main() {
+    must_use(1);
+    printf("%d\n", old_api(4));
+    return 0;
+}

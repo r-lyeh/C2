@@ -1,0 +1,9 @@
+// map(K, V): a hash map that is a plain pointer too; text keys are copied, null is empty.
+#import "runtime"
+int main() {
+    map(const char *, int) ages;
+    ages.set("ana", 31);
+    ages.at("bo") += 7;                      // added zeroed when missing
+    printf("%d %d %zu\n", *ages.get("ana"), *ages.get("bo"), ages.count());
+    ages.free();
+}

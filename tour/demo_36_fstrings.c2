@@ -1,0 +1,10 @@
+// f-strings build a string with {expressions} in it ({x:.2f} formats as printf would): a temporary,
+// or yours if you keep it.
+#import "runtime"
+int main() {
+    string name = "Ada";
+    int lives = 3; double hp = 87.5;
+    string hud = f"{name}: {lives} lives, {hp:.1f} hp, {lives * 100} pts";
+    printf("%s\n", hud.data());
+    name.free(); hud.free();
+}

@@ -1,0 +1,2 @@
+int f(int x, ...) { if (!x) return 0; return f(x - 1); }
+int main() { printf("%d\n", f(3)); return 0; }

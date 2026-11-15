@@ -1,0 +1,60 @@
+// x.load(path) / x.parse(text), JSON5 and XML, and x.json5() / x.xml() (runtime/serial): round trips of every kind,
+// a missing field keeping its value, and the problems reported with their paths
+#import "runtime"
+#import "runtime/serial"
+enum Class { WARRIOR, MAGE };
+struct Vec { float x, y; };
+struct Item { string name; int count; };
+struct Hero {
+    string name;
+    [[rename("health")]] int hp;
+    Vec pos;
+    Class cls;
+    array(Item) bag;
+    map(const char *, int) skills;
+    map(Class, int) wins;
+    map(int, double) xp;
+    set(int) visited;
+    char tag[8];
+    bool alive;
+    float speed;
+    double gold;
+    unsigned level : 5;
+    int mood : 3;
+    [[skip]] int cache;
+    int fixed[3];
+};
+void fill(Hero *h) {
+    h.name = string("Ada \"the\" <Bold> & co");
+    h.hp = 75; h.pos = Vec(3, 4.5); h.cls = MAGE;
+    h.bag.push(Item("sword", 1)); h.bag.push(Item("potion", 3));
+    h.skills.set("fire", 3); h.skills.set("two words", 1);
+    h.wins.set(MAGE, 2); h.wins.set(WARRIOR, 0);
+    h.xp.set(1, 10.5); h.xp.set(2, 1e300 * 1e10);
+    h.visited.add(4); h.visited.add(9);
+    strcpy(h.tag, "hero"); h.alive = true; h.speed = 1.1f; h.gold = -0.25; h.level = 17; h.mood = -2; h.cache = 99;
+    h.fixed[0] = 7; h.fixed[2] = 9;
+}
+int main() {
+    Hero a = {};
+    fill(&a);
+    string j = a.json5();
+    Hero b = {};
+    b.cache = 5;
+    string err = {};
+    bool ok = b.parse(j.data(), &err);
+    string j2 = b.json5();
+    printf("json5 round trip: ok %d same %d cache %d errors '%s'\n", ok, j == j2, b.cache, err.data());
+    string x = a.xml();
+    printf("%s", x.data());
+    Hero c = {};
+    ok = c.parse(x.data(), &err);
+    string j3 = c.json5();
+    printf("xml round trip: ok %d same %d errors '%s'\n", ok, j == j3, err.data());
+    if (j != j3) printf("%s", j3.data());
+    Hero d = {};
+    d.hp = 1;
+    ok = d.parse("{name: 5, health: 'x', cls: 'ROGUE', bag: [{count: 1.5}, 3], level: 99, mood: 9, tag: 'much too long', fixed: [1,2,3,4], unknown: 1}", &err);
+    printf("bad: ok %d hp %d\n%s", ok, d.hp, err.data());
+    a.free(); b.free(); c.free(); d.free(); j.free(); j2.free(); j3.free(); x.free(); err.free();
+}

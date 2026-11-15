@@ -1,0 +1,27 @@
+err ''
+42.67 1 256 222393 100000 -3
+world /*comment in string*/ //again | a"b
+é😀\ | 35
+1 2 3 -3
+4 1 0 5
+default 7
+{a: 1        -> line 1: '}' expected at the end
+{a 1}        -> line 1: ':' expected after 'a'
+[1, 2        -> line 1: ']' expected at the end
+{a: 'x       -> line 1: unterminated string
+{a: @}       -> line 1: a value expected, not '@'
+{"k" 1}      -> line 1: ':' expected after 'k'
+1 2          -> line 1: unexpected '2' after the value
+{a: [1 2]}   -> line 1: ',' or ']' expected in a list
+{a: /* x     -> line 1: unterminated /* comment
+err '' root person
+Robert & A | Smith | home | 2006-11-11T19:23
+3 2 3 <raw> & stuff 1
+<a><b></a>     -> line 1: </a> closes <b>
+<a>            -> line 1: <a> isn't closed
+<a></a><b/>    -> line 1: a second root element <b>
+<a x=1/>       -> line 1: a quoted value expected for an attribute of <a>
+text           -> line 1: no root element
+<a><!-- x </a> -> line 1: unterminated <!-- comment
+</a>           -> line 1: </a> without its opening tag
+/no/such.json5: No such file or directory

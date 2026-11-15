@@ -1,0 +1,2 @@
+#import "inc/mod_math" as m
+int main() {}

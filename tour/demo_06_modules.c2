@@ -1,0 +1,6 @@
+// #import "file" brings in a module once; only its [[export]]ed names are visible here.
+#import "inc/greet"
+int main() {
+    greet("world");
+    greet("again");   // greeting() and calls stay private to the module
+}

@@ -1,0 +1,46 @@
+// map and set keys of a type with [[operator==]] and T_hash (string): compared by their text and owned
+// by the map; m[k] is m.at(k), s[k] is s.has(k); s += k adds, s -= k removes
+#import "runtime"
+
+struct Point { int x, y; };
+[[operator==]] bool Point_eq(Point a, Point b) { return a.x == b.x && a.y == b.y; }
+unsigned long long Point_hash(Point *p) { return (unsigned long long)p.x * 31 + (unsigned long long)p.y; }
+
+int main() {
+    const char *longk = "a name much longer than twenty-three bytes";
+    map(string, int) ages;
+    ages.set("bo", 7);
+    ages.set(longk, 1);
+    ages.set(longk, 2);                               // the same key: replaced, not added
+    string named = longk;
+    ages.at(named) += 10;                             // a string variable as the key
+    printf("count %zu, %d %d, has %d %d\n", ages.count(), *ages.get("bo"), *ages.get(longk), ages.has(named), ages.has("nope"));
+    ages["bo"] += 1;                                  // m[k]: the value, added (zeroed) when missing
+    ages["cy"]++;
+    printf("bo %d cy %d count %zu\n", ages["bo"], ages["cy"], ages.count());
+    printf("del %d %d count %zu\n", ages.del(longk), ages.del(longk), ages.count());
+    for (auto *e : ages) printf("%s=%d ", e.key.data(), e.value);
+    puts("");
+
+    set(string) words;
+    for (int i : 0..3) { words += "repeated, and longer than twenty-three bytes"; words += "x"; }
+    words -= "never there";
+    printf("words %zu: %d %d\n", words.count(), words["x"], words["y"]);
+    words -= "x";
+    printf("words %zu: %d\n", words.count(), words["x"]);
+
+    set(int) seen;
+    for (int i : 0..10) seen += i % 3;
+    seen -= 1;
+    printf("seen %zu: %d %d %d\n", seen.count(), seen[0], seen[1], seen[2]);
+
+    map(Point, const char *) where;
+    Point home = {1, 2};
+    where[home] = "home";
+    where[home] = "still home";
+    printf("points %zu: %s\n", where.count(), where[home]);
+
+    ages.clear();
+    printf("cleared %zu\n", ages.count());
+    ages.free(); words.free(); seen.free(); where.free(); named.free();
+}

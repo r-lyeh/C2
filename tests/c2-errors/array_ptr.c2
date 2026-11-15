@@ -1,0 +1,2 @@
+int sum3(int v[3]) { return v[0] + v[1] + v[2]; }
+int main() { int four[4] = {0}; int *p = four; return sum3(p); }

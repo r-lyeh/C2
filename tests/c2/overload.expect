@@ -1,0 +1,11 @@
+1 2 | 6 8 10 | 50
+5 200
+int 42
+double 2.5
+str hi
+vec2 1 2
+int 7
+int 21
+str there
+vec2 1 2
+vec2 10 20

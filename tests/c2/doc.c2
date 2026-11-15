@@ -1,0 +1,41 @@
+// runtime/doc: JSON5 and XML parsed into nodes and read by path; escapes, numbers, comments, CDATA,
+// entities, attributes, repeated elements; malformed documents give a line and a reason
+#import "runtime"
+#import "runtime/serial"
+int main() {
+    doc d = json5_parse(
+        "  /* json5 */ // comment\n"
+        "  abc: 42.67, def: true, integer:0x100 \n"
+        "  huge: 2.2239333e5, big: 1e5, neg: -3,\n"
+        "  hello: 'world /*comment in string*/ //again', \n"
+        "  esc: \"a\\\"b\\n\\u00e9\\ud83d\\ude00\\\\\",\n"
+        "  children : { a: 1, b: 2, c: 3 },\n"
+        "  array: [+1,2,-3,4,5,],    \n"
+        "  invalids : [ NaN, -NaN, Infinity, -Infinity ],");
+    printf("err '%s'\n", d.error);
+    printf("%g %lld %lld %g %g %lld\n", d.number("/abc"), d.integer("/def"), d.integer("/integer"), d.number("/huge"), d.number("big"), d.integer("neg"));
+    printf("%s | %s | %zu\n", d.text("/hello"), d.text("esc"), strlen(d.text("/hello")));
+    printf("%lld %lld %lld %lld\n", d.integer("/children/a"), d.integer("/children.b"), d.integer("/children[c]"), d.integer("/array[2]"));
+    printf("%d %d %d %d\n", d.count("/invalids"), isnan(d.number("/invalids[0]")), d.has("/nope"), d.count("/array"));
+    printf("%s %lld\n", d.text("/missing", "default"), d.integer("/missing", 7));
+    d.free();
+    const char *bad[] = {"{a: 1", "{a 1}", "[1, 2", "{a: 'x", "{a: @}", "{\"k\" 1}", "1 2", "{a: [1 2]}", "{a: /* x"};
+    for (int i = 0; i < countof(bad); i++) { doc b = json5_parse(bad[i]); printf("%-12s -> %s\n", bad[i], b.error); }
+    doc x = xml_parse(
+        "<?xml version=\"1.0\"?><!-- XML representation of a person record -->"
+        "<person created=\"2006-11-11T19:23\" modified='2006-12-31T23:59'>\n"
+        "    <firstName>Robert &amp; &#x41;</firstName>\n"
+        "    <lastName>Smith</lastName>\n"
+        "    <address type=\"home\">\n"
+        "        <street>12345 Sixth Ave</street><city>Anytown</city>\n"
+        "    </address>\n"
+        "    <item>1</item><item>2</item><item>3</item><empty/><data><![CDATA[<raw> & stuff]]></data>\n"
+        "</person>\n");
+    printf("err '%s' root %s\n", x.error, x.root.name);
+    printf("%s | %s | %s | %s\n", x.text("/firstName/$"), x.text("/lastName"), x.text("/address/@type"), x.text("/@created"));
+    printf("%d %lld %lld %s %d\n", x.count("/item"), x.integer("/item[1]"), x.integer("/item[2]"), x.text("/data"), x.has("/empty"));
+    x.free();
+    const char *xbad[] = {"<a><b></a>", "<a>", "<a></a><b/>", "<a x=1/>", "text", "<a><!-- x </a>", "</a>"};
+    for (int i = 0; i < countof(xbad); i++) { doc b = xml_parse(xbad[i]); printf("%-14s -> %s\n", xbad[i], b.error); }
+    doc nf = json5_open("/no/such.json5"); printf("%s\n", nf.error);
+}

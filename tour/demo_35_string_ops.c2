@@ -1,0 +1,10 @@
+// Operators plus destructors: + joins and - removes, each making a new string, and the ones in between
+// are temporaries, freed for you.  [-1] counts from the end.
+#import "runtime"
+int main() {
+    string hi = "hello";
+    string all = hi + " world" + "!";      // the hi + " world" in between is freed: a temporary
+    printf("%s %c %c\n", all.data(), all[0], all[-1]);
+    printf("%s\n", (all - "l").data());   // heo word!
+    hi.free(); all.free();
+}

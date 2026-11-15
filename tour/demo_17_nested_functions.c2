@@ -1,0 +1,5 @@
+// Like ({ }), a function can live inside another one, close to where it's used (no captures).
+int main() {
+    int square(int x) { return x * x; }
+    printf("%d\n", square(7));   // 49
+}

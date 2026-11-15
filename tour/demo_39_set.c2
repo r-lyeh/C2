@@ -1,0 +1,8 @@
+// set(K): a map with keys only; add says whether the key is new.
+#import "runtime"
+int main() {
+    set(int) seen;
+    for (int i = 0; i < 10; i++) seen.add(i % 3);
+    printf("%zu distinct, has 2: %d\n", seen.count(), seen.has(2));   // 3, 1
+    seen.free();
+}

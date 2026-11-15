@@ -1,0 +1,1 @@
+error: 'strnlen' isn't available in the sandbox (C2_sandbox): a sandboxed script reaches C²'s own C library, the host's symbols and the libraries it loaded

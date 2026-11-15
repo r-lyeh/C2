@@ -1,0 +1,1 @@
+:2: error: [[copy]] 'buf_copy': 'struct buf' needs its [[destructor]] first (a copy is something to free)

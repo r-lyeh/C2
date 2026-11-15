@@ -1,0 +1,1 @@
+:2: error: [[clamp(min, max)]] is for numbers, not string ('name'); text takes [[clamp(N)]], its most characters

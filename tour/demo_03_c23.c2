@@ -1,0 +1,11 @@
+// C23 is all here (in .c files too): constexpr, auto, typeof, bool, binary literals, 1'000 separators...
+enum dir : unsigned char { NORTH, EAST, SOUTH, WEST };   // an enum with a fixed type
+int main() {
+    constexpr int SIZE = 0b1000;                  // a named constant, usable as an array size
+    int grid[SIZE] = {};                          // {} zeroes everything
+    auto speed = 2.5;                             // a double
+    typeof(speed) twice = speed * 2;
+    bool ok = twice == 5.0 && sizeof grid == 32;
+    static_assert(sizeof(enum dir) == 1);         // the message is optional
+    printf("%s %d\n", ok ? "true" : "false", 1'000'000);
+}

@@ -1,0 +1,226 @@
+// runtime/map.c2: the C² runtime's hash map and set.  Like array(T), a map is a plain pointer: to a dense
+// array of { key, value } entries, with the count and a hash index stored just before them.  So a
+// loop over the entries is an array loop, and a null pointer is an empty map: `map(const char *, int)
+// ages;` needs no initializer in .c2.  In .c2, `ages["cy"]` is map_at, `seen[42]` is set_has, and
+// `seen += 42` / `seen -= 42` are set_add / set_del (in C, m[i] is still the i-th entry).
+//
+//   map(const char *, int) ages;
+//   map_set(ages, "ana", 31);
+//   map_set(ages, "bo", 7);
+//   int *a = map_get(ages, "ana");          // NULL when the key is missing
+//   map_at(ages, "cy") += 1;                // the value, added (zeroed) when the key is missing
+//   map_foreach(ages, e) printf("%s %d\n", e.key, e.value);
+//   map_del(ages, "bo");
+//   map_free(ages);
+//
+//   set(int) seen;
+//   if (set_add(seen, 42)) puts("new");     // 1 when the key wasn't there yet
+//   set_has(seen, 42); set_del(seen, 42); set_free(seen);
+//
+// Keys: `char *` and `const char *` keys compare and hash by their text, and the map keeps its own
+// copy of each key (freed by map_del / map_free).  A key type with [[operator==]] and T_hash (string)
+// compares and hashes through them, and the map owns its keys (copied in, freed by map_del /
+// map_free).  Any other key type (numbers, pointers, enums, small structs) compares by its bytes:
+// a struct key must have no padding, or zeroed padding (C² locals start zeroed).  Floating-point keys compare bitwise (0.0 and -0.0 differ).
+//
+// map_set's key is the 2nd argument and its value the rest, so a struct value can be a compound
+// literal (`map_set(m, 1, (Vec){1, 2})`); a compound-literal key works in the other macros
+// (`map_get(grid, (Cell){1, 2})`), and in map_set when it is parenthesized.
+//
+// Order: entries stay in insertion order until a deletion, which moves the last entry into the hole.
+// Don't add or delete while looping over the map; pointers from map_get / map_at are valid until
+// the next change.  The index uses open addressing with linear probing and backward-shift deletion
+// (no tombstones), and grows at 3/4 full.  Out of memory aborts with a message.
+// A map holding a different typed map: `typedef map(int, float) Weights;` names the type once, so
+// it can be passed to functions and assigned (each `map(K, V)` is a new struct type, as in C).
+
+[[export]] struct map_header { size_t count, cap; unsigned *slots; size_t nslots; };   // 32 bytes
+
+#define map_hdr_(m) ((map_header *)(void *)(m) - 1)
+#define map_kind_(m) _Generic((m)->key, char *: 1, const char *: 1, default: 0)
+
+// a key type's own operations, from __c2_keyops(key): {equal, hash, copy, free}; NULL: by bytes
+typedef bool (*map_eq_fn_)(const void *, const void *);
+typedef unsigned long long (*map_hash_fn_)(const void *);
+typedef void (*map_copy_fn_)(void *, const void *);
+typedef void (*map_free_fn_)(void *);
+
+unsigned long long map_hash_(const void *key, size_t ksize, int kind, void *const *ops = NULL) {   // FNV-1a, then mixed
+    const unsigned char *p = kind ? *(const unsigned char **)key : key;
+    unsigned long long h = 1469598103934665603ULL;
+    if (ops) h = ((map_hash_fn_)ops[1])(key);
+    else if (kind) for (; *p; p++) h = (h ^ *p) * 1099511628211ULL;
+    else for (size_t i = 0; i < ksize; i++) h = (h ^ p[i]) * 1099511628211ULL;
+    h ^= h >> 31; h *= 0x7fb5d329728ea185ULL; h ^= h >> 27;
+    return h;
+}
+
+bool map_same_(const void *a, const void *b, size_t ksize, int kind, void *const *ops = NULL) {
+    if (ops) return ((map_eq_fn_)ops[0])(a, b);
+    return kind ? strcmp(*(const char **)a, *(const char **)b) == 0 : memcmp(a, b, ksize) == 0;
+}
+
+// slots: pairs of { hash (32 bits), entry index + 1 (0: empty) }
+long map_slot_(void *m, const void *key, size_t esize, size_t ksize, int kind, unsigned h, void *const *ops = NULL) {
+    map_header *hd = map_hdr_(m);
+    size_t mask = hd->nslots - 1;
+    for (size_t i = h & mask;; i = (i + 1) & mask) {
+        unsigned *s = hd->slots + 2 * i;
+        if (!s[1]) return -1 - (long)i;                  // not found: -1 - the free slot
+        if (s[0] == h && map_same_((char *)m + (s[1] - 1) * esize, key, ksize, kind, ops)) return (long)i;
+    }
+}
+
+[[export]] long map_find_(void *m, const void *key, size_t esize, size_t ksize, int kind, void *const *ops = NULL) {
+    if (!m || !map_hdr_(m)->count) return -1;
+    long i = map_slot_(m, key, esize, ksize, kind, (unsigned)map_hash_(key, ksize, kind, ops), ops);
+    return i < 0 ? -1 : (long)map_hdr_(m)->slots[2 * i + 1] - 1;
+}
+
+void map_rehash_(map_header *hd, size_t nslots) {
+    unsigned *old = hd->slots;
+    size_t oldn = hd->nslots;
+    hd->slots = calloc(nslots, 2 * sizeof(unsigned));
+    if (!hd->slots) { fprintf(stderr, "map: out of memory (%zu slots)\n", nslots); abort(); }
+    hd->nslots = nslots;
+    for (size_t i = 0; i < oldn; i++) {
+        if (!old[2 * i + 1]) continue;
+        size_t j = old[2 * i] & (nslots - 1);
+        while (hd->slots[2 * j + 1]) j = (j + 1) & (nslots - 1);
+        hd->slots[2 * j] = old[2 * i];
+        hd->slots[2 * j + 1] = old[2 * i + 1];
+    }
+    free(old);
+}
+
+// the entry for key, added (zeroed, with a copy of the key) if missing; returns the map, which may
+// have moved; *at = the entry's index, *added = 1 if it is new.  With ops (a key type that owns
+// memory), the key is the map's own copy
+[[export]] void *map_put_(void *m, const void *key, size_t esize, size_t ksize, int kind, size_t *at, int *added, void *const *ops = NULL) {
+    unsigned h = (unsigned)map_hash_(key, ksize, kind, ops);
+    *added = 0;
+    if (m && map_hdr_(m)->count) {
+        long i = map_slot_(m, key, esize, ksize, kind, h, ops);
+        if (i >= 0) { *at = map_hdr_(m)->slots[2 * i + 1] - 1; return m; }
+    }
+    map_header *hd = m ? map_hdr_(m) : NULL;
+    size_t count = hd ? hd->count : 0;
+    if (!hd || count == hd->cap) {                      // room for one more entry
+        size_t cap = hd ? hd->cap * 2 : 8;
+        if (cap > (SIZE_MAX - sizeof(map_header)) / esize || cap > 0x7fffffff) { fprintf(stderr, "map: too large\n"); abort(); }
+        map_header *g = realloc(hd, sizeof(map_header) + cap * esize);
+        if (!g) { fprintf(stderr, "map: out of memory (%zu entries)\n", cap); abort(); }
+        if (!hd) memset(g, 0, sizeof *g);
+        g->cap = cap;
+        hd = g;
+        m = hd + 1;
+    }
+    if ((count + 1) * 4 > hd->nslots * 3) map_rehash_(hd, hd->nslots ? hd->nslots * 2 : 16);
+    char *e = (char *)m + count * esize;
+    memset(e, 0, esize);
+    if (ops) ((map_copy_fn_)ops[2])(e, key);
+    else if (kind) {
+        char *copy = strdup(*(const char **)key);
+        if (!copy) { fprintf(stderr, "map: out of memory\n"); abort(); }
+        memcpy(e, &copy, sizeof copy);
+    } else memcpy(e, key, ksize);
+    size_t mask = hd->nslots - 1, j = h & mask;
+    while (hd->slots[2 * j + 1]) j = (j + 1) & mask;
+    hd->slots[2 * j] = h;
+    hd->slots[2 * j + 1] = (unsigned)count + 1;
+    hd->count = count + 1;
+    *at = count;
+    *added = 1;
+    return m;
+}
+
+void map_unslot_(map_header *hd, size_t i) {           // empty slot i, shifting back what follows
+    size_t mask = hd->nslots - 1, j = i;
+    for (;;) {
+        j = (j + 1) & mask;
+        unsigned *s = hd->slots + 2 * j;
+        if (!s[1]) break;
+        size_t k = s[0] & mask;                        // where s wants to be
+        if (i <= j ? (i < k && k <= j) : (i < k || k <= j)) continue;   // it can't move to i
+        hd->slots[2 * i] = s[0];
+        hd->slots[2 * i + 1] = s[1];
+        i = j;
+    }
+    hd->slots[2 * i + 1] = 0;
+}
+
+// removes key; returns 1 if it was there.  The last entry moves into its place.
+[[export]] int map_del_(void *m, const void *key, size_t esize, size_t ksize, int kind, void *const *ops = NULL) {
+    if (!m || !map_hdr_(m)->count) return 0;
+    map_header *hd = map_hdr_(m);
+    long i = map_slot_(m, key, esize, ksize, kind, (unsigned)map_hash_(key, ksize, kind, ops), ops);
+    if (i < 0) return 0;
+    size_t at = hd->slots[2 * i + 1] - 1, last = hd->count - 1;
+    char *e = (char *)m + at * esize;
+    if (ops && ops[3]) ((map_free_fn_)ops[3])(e);
+    else if (kind) free(*(char **)e);
+    map_unslot_(hd, (size_t)i);
+    if (at != last) {                                  // move the last entry into the hole
+        char *l = (char *)m + last * esize;
+        size_t mask = hd->nslots - 1;
+        unsigned h = (unsigned)map_hash_(l, ksize, kind, ops);
+        size_t j = h & mask;
+        while (hd->slots[2 * j + 1] != last + 1) j = (j + 1) & mask;
+        hd->slots[2 * j + 1] = (unsigned)at + 1;
+        memcpy(e, l, esize);
+    }
+    hd->count = last;
+    return 1;
+}
+
+[[export]] void map_clear_(void *m, size_t esize, int kind, void *const *ops = NULL) {   // keeps the memory
+    if (!m) return;
+    map_header *hd = map_hdr_(m);
+    if (ops && ops[3]) for (size_t i = 0; i < hd->count; i++) ((map_free_fn_)ops[3])((char *)m + i * esize);
+    else if (kind) for (size_t i = 0; i < hd->count; i++) free(*(char **)((char *)m + i * esize));
+    hd->count = 0;
+    memset(hd->slots, 0, hd->nslots * 2 * sizeof(unsigned));
+}
+
+// the macros' own copy of a key: freed once the map has made its own
+[[export]] void map_key_done_(void *k, void *const *ops) { if (ops && ops[3]) ((map_free_fn_)ops[3])(k); }
+
+[[export]] void map_free_(void *m, size_t esize, int kind, void *const *ops = NULL) {
+    if (!m) return;
+    map_clear_(m, esize, kind, ops);
+    free(map_hdr_(m)->slots);
+    free(map_hdr_(m));
+}
+
+#define map(K, V) struct { K key; V value; } * [[__c2_map]]
+#define map_count(m) ((m) ? map_hdr_(m)->count : (size_t)0)
+#define map_ops_(k) ((void *const *)__c2_keyops(k))
+#define map_find(m, ...) ({ typeof(m) m_ = (m); typeof(m_->key) k_ = (__VA_ARGS__); \
+    long f_ = map_find_(m_, &k_, sizeof *m_, sizeof k_, map_kind_(m_), map_ops_(k_)); map_key_done_(&k_, map_ops_(k_)); f_; })
+#define map_has(m, ...) (map_find(m, __VA_ARGS__) >= 0)
+#define map_get(m, ...) ({ typeof(m) mg_ = (m); long i_ = map_find(mg_, __VA_ARGS__); i_ < 0 ? NULL : &(mg_ + i_)->value; })
+#define map_at(m, ...) (*({ typeof(m) *m_ = &(m); typeof((*m_)->key) k_ = (__VA_ARGS__); size_t at_; int add_; \
+    *m_ = map_put_(*m_, &k_, sizeof **m_, sizeof k_, map_kind_(*m_), &at_, &add_, map_ops_(k_)); map_key_done_(&k_, map_ops_(k_)); \
+    &(*m_ + at_)->value; }))
+#define map_set(m, k, ...) ({ typeof(m) *m_ = &(m); typeof((*m_)->key) k_ = (k); \
+    typeof((*m_)->value) v_ = (__VA_ARGS__); size_t at_; int add_; \
+    *m_ = map_put_(*m_, &k_, sizeof **m_, sizeof k_, map_kind_(*m_), &at_, &add_, map_ops_(k_)); map_key_done_(&k_, map_ops_(k_)); \
+    memcpy(&(*m_ + at_)->value, &v_, sizeof v_); add_; })
+#define map_del(m, ...) ({ typeof(m) m_ = (m); typeof(m_->key) k_ = (__VA_ARGS__); \
+    int d_ = map_del_(m_, &k_, sizeof *m_, sizeof k_, map_kind_(m_), map_ops_(k_)); map_key_done_(&k_, map_ops_(k_)); d_; })
+#define map_clear(m) map_clear_((m), sizeof *(m), map_kind_(m), map_ops_((m)->key))
+#define map_free(m) ((void)(map_free_((m), sizeof *(m), map_kind_(m), map_ops_((m)->key)), (m) = NULL))
+#define map_foreach(m, e) for (typeof(*(m)) *e = (m), *e##_end_ = (m) + map_count(m); e < e##_end_; e++)
+
+#define set(K) struct { K key; } * [[__c2_set]]
+#define set_count map_count
+#define set_has map_has
+#define set_del map_del
+#define set_clear map_clear
+#define set_free map_free
+#define set_foreach map_foreach
+#define set_add(s, ...) ({ typeof(s) *s_ = &(s); typeof((*s_)->key) k_ = (__VA_ARGS__); size_t at_; int add_; \
+    *s_ = map_put_(*s_, &k_, sizeof **s_, sizeof k_, map_kind_(*s_), &at_, &add_, map_ops_(k_)); map_key_done_(&k_, map_ops_(k_)); add_; })
+
+#export map map_count map_find map_has map_get map_at map_set map_del map_clear map_free map_foreach
+#export set set_count set_has set_del set_clear set_free set_foreach set_add

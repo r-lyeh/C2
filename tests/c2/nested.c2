@@ -1,0 +1,19 @@
+/* .c2: nested functions (no captures) and exact array lengths in parameters */
+#include <stdio.h>
+int sum3(int v[3]) { return v[0] + v[1] + v[2]; }
+int first(int v[static 2]) { return v[0]; }
+int main(void) {
+    int fact(int n) { return n <= 1 ? 1 : n * fact(n - 1); }        /* recursion by its own name */
+    int twice(int x) {
+        int inc(int y) { return y + 1; }                            /* nested in a nested one */
+        return inc(inc(x));
+    }
+    int a3[3] = {1, 2, 3}, a5[5] = {5, 6, 7, 8, 9};
+    {
+        int fact(int n) { return -n; }                              /* shadows in an inner block */
+        printf("%d ", fact(4));
+    }
+    int (*fp)(int) = twice;
+    printf("%d %d %d %d %d %d\n", fact(5), twice(3), fp(10), sum3(a3), a3.sum3(), first(a5));
+    return 0;
+}

@@ -1,0 +1,4 @@
+// a typedef's name builds its struct too, anonymous or not: Vec3(1, z: 3)
+typedef struct { float x, y, z; } Vec3;
+typedef struct P { int a; } Pt;
+int main() { Vec3 v = Vec3(1, z: 3); Pt p = Pt(7); Vec3(4, 5, 6); printf("%g %g %g %d %g\n", v.x, v.y, v.z, p.a, Vec3(y: 2).y); }

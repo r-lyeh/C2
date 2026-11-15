@@ -1,0 +1,16 @@
+// modules: #import, [[export]], private names per module, alias.name, imported once
+#import "inc/mod_math"
+#import "inc/mod_other"
+#import "inc/mod_math"                // imported once
+#import "inc/../inc/mod_math"         // the same file by another path: still once
+#import m = "inc/mod_math"            // (still once, but the alias works)
+
+int clamp_(int x) { return 42; }     // the app's own clamp_: no clash
+
+int main() {
+    Vec v = {3, 4};
+    printf("%d %d %d %d %g\n", add(70, 50), add(-5, 1), twice(21), count(), vlen(v));
+    printf("%d %d %d %d\n", mod_math.add(1, 2), m.twice(4), other_calls(), clamp_(0));
+    printf("%d %d %d\n", scale(5), scale(value: 5, by: 3), BOX);
+    return 0;
+}

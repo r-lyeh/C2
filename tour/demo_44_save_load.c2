@@ -1,0 +1,18 @@
+// Saving and loading: x.save(path) writes any value as JSON5 through its reflection table, and
+// x.load(path) reads it back (a path ending in .xml: the same as XML; x.json5(), x.xml(): the text).  [[rename("hp")]] saves a
+// field under another name, [[skip]] leaves it out; a field the file doesn't have keeps its value.
+#import "runtime"
+#import "runtime/serial"                     // (an import of its own: it's big to compile)
+struct Item { string name; int count; };
+struct Hero { string name; [[rename("health")]] int hp; array(Item) bag; [[skip]] int cache; };
+int main() {
+    Hero h = {"Ada", 75};
+    h.bag.push(Item("potion", 3));
+    if (!h.save("hero.json5")) perror("hero.json5");   // written whole, or not at all
+    Hero back = {};
+    string errors = {};
+    if (!back.load("hero.json5", &errors)) printf("%s", errors.data());
+    printf("%s", back.json5().data());             // { name: "Ada", health: 75, bag: [...] }
+    remove("hero.json5");
+    h.free(); back.free();
+}

@@ -1,0 +1,6 @@
+// Multi-character constants, up to 8 characters (64-bit) packed in source order: readable tags, usable as case labels.
+int main() {
+    long long tag = 'SAVEGAME';
+    printf("%llx\n", tag);   // 5341564547414d45
+    switch (tag) { case 'SAVEGAME': puts("a save game"); }
+}

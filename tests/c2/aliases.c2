@@ -1,0 +1,19 @@
+// .c2: i8..u64 / int8..uint64 / f32 f64 / flt32 flt64, f() == f(void), name: value arguments, [[indeterminate]] / [[unclear]]
+int box(int w, int h = 10, int d = w * 2) { return w * h * d; }
+int answer() { return 42; }
+int main() {
+    i8 a = -1; int16 b = 300; i32 c = 1 << 30; int64 d = 1LL << 40;
+    u8 e = 255; uint16 f = 65535; u32 g = 4000000000u; uint64 h = ~0ull;
+    f32 x = 1.5f; flt64 y = 2.25;
+    printf("%d %d %d %lld %d %d %u %llu %g %g\n", a, b, c, (long long)d, e, f, g, (unsigned long long)h, x, y);
+    printf("%zu %zu %zu %zu %zu %zu\n", sizeof(i8), sizeof(u16), sizeof(int32), sizeof(u64), sizeof(f32), sizeof(flt64));
+    printf("%d %d %d %d\n", box(2, h: 3), box(w: 2, d: 1), box(2, .h = 3, d: 1), answer());
+    printf("%d\n", box(h: 1 ? 2 : 3, w: 5 > 4 ? 1 : 0));
+    [[indeterminate]] char big[64];
+    char big2[16] [[unclear]];
+    int z;
+    printf("%d %d\n", z, sizeof big + sizeof big2);
+    u8 *s = u8"text";
+    printf("%s %d\n", s, u8'A');
+    return 0;
+}

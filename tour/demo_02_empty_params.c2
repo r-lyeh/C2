@@ -1,0 +1,5 @@
+// f() means f(void), as in C23 and C++: calling it with arguments is an error.
+int answer() { return 42; }
+int main() {
+    printf("%d\n", answer());   // answer(1) wouldn't compile
+}

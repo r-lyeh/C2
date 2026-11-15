@@ -1,0 +1,9 @@
+// a key type with [[operator==]] needs T_hash too
+#import "runtime"
+struct Name { char s[8]; };
+[[operator==]] bool Name_eq(Name a, Name b) { return !strcmp(a.s, b.s); }
+int main() {
+    map(Name, int) m;
+    Name n = {"ab"};
+    m[n] = 1;
+}

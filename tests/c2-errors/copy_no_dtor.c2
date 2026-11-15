@@ -1,0 +1,3 @@
+struct buf { char *p; };
+[[copy]] buf buf_copy(const buf *b) { return (buf){b.p}; }
+int main() { return 0; }

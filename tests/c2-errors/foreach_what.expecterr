@@ -1,0 +1,1 @@
+:4: error: for (... : p): a struct P can't be walked (ranges a..b, arrays, array(T), maps, sets, text, reflect(T), or a type T with bool T_next(T *it, X *out))

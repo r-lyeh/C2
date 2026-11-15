@@ -1,0 +1,1 @@
+[[export]] const char *kit_name(void) { return "kit/index.c2 (wrong)"; }

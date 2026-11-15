@@ -1,0 +1,7 @@
+// Functions can share a name when their first parameters differ: the first argument picks one.
+void show(int x) { printf("int %d\n", x); }
+void show(const char *s) { printf("text %s\n", s); }
+int main() {
+    show(42);
+    show("hi");   // two functions: their symbols are int_show and str_show
+}

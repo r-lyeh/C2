@@ -1,0 +1,5 @@
+struct P { int x; };
+int main() {
+    P p = {};
+    for (int v : p) printf("%d", v);
+}

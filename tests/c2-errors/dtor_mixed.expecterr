@@ -1,0 +1,1 @@
+:2: error: ?: mixes a temporary 'union string' with one that is not: make both temporaries, or neither

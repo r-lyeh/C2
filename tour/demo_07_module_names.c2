@@ -1,0 +1,11 @@
+// A module's names can also be written qualified (greet.greet) or under another name (#import g = ...),
+// and its private names never clash with yours.
+#import "inc/greet"
+#import g = "inc/greet"                      // imported once: g only adds a name for it
+const char *greeting(void) { return "hi"; }  // ours: the module's private greeting() doesn't clash
+int main() {
+    greet("plain");
+    greet.greet("qualified");
+    g.greet("aliased");
+    printf("%s\n", greeting());
+}

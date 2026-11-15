@@ -1,0 +1,4 @@
+Hello, "MIR"!
+n=45 a=22 k=3 d=6.00 sqrt2=1.4142 buf=7,8,9 len=8 s=MIR
+sizeof: int=4 char=1 double=8 ptr=8 P=24 s=6 buf[0]=4
+done

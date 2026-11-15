@@ -1,0 +1,5 @@
+:8: warning: [[pure]] function 'noisy' writes the global 'calls'
+:8: warning: [[pure]] function 'noisy' calls 'printf'
+:11: warning: the result of 'sq' is discarded ([[pure]]: the call does nothing else)
+:12: warning: the result of 'cube' is discarded ([[pure]]: the call does nothing else)
+:13: warning: the result of 'twice' is discarded ([[pure]]: the call does nothing else)

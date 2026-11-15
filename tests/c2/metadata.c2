@@ -1,0 +1,31 @@
+// [[clamp]], [[clamp(N)]], [[comment]]: checked on load and on x.set(), written as comments
+#import "runtime"
+#import "runtime/serial"
+enum Class { WARRIOR, MAGE };
+struct Hero {
+    [[clamp(5)]] string name;
+    [[clamp(0, 100), comment("hit points: 0 is dead")]] int hp;
+    [[clamp(0, 1)]] float speed;
+    [[clamp(0, 10)]] array(int) stats;
+    [[clamp(3)]] char tag[8];
+    [[clamp(1, 9)]] unsigned level : 4;
+    Class cls;
+};
+Hero hero;
+int main() {
+    string errors = {};
+    hero.parse("{name: 'Ádalberto', hp: 150, speed: -2, stats: [1, 12, -1], tag: 'abcdef', level: 12, cls: 'MAGE'}", &errors);
+    printf("%s%s", hero.json5().data(), errors.data());
+    errors.free();
+    puts(hero.xml().data());
+    const char *cmds[][2] = {{"hero.hp", "250"}, {"hero.name", "Bo"}, {"hero.cls", "WARRIOR"}, {"hero.level", "0"}, {"hero.stats[1]", "7"},
+                             {"hero.speed", "0.5"}, {"hero.name", "'Quoted'"}, {"hero.hp", "abc"}, {"hero.nope", "1"}, {"hero.stats", "[3, 4]"}};
+    for (int i = 0; i < 10; i++) {
+        string e = {};
+        bool ok = (global(cmds[i][0])).set(cmds[i][1], &e, cmds[i][0]);
+        string t = (global(cmds[i][0])).text();
+        printf("set %s %s -> %d %s %s", cmds[i][0], cmds[i][1], ok, t.data(), ok ? "\n" : e.data());
+        t.free(); e.free();
+    }
+    hero.name.free(); array_free(hero.stats);
+}

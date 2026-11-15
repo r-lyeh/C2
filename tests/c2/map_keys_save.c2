@@ -1,0 +1,18 @@
+// saved and loaded maps and sets of string keys: the loader uses the key type's operations too
+#import "runtime"
+#import "runtime/serial"
+struct Save { map(string, int) ages; set(string) tags; };
+int main() {
+    Save s = {};
+    s.ages["a name much longer than twenty-three bytes"] = 3;
+    s.ages["bo"] = 7;
+    s.tags += "a tag longer than twenty-three bytes, too";
+    string text = s.json5();
+    printf("%s\n", text.data());
+    Save t = {};
+    t.parse(text.data());
+    t.ages["a name much longer than twenty-three bytes"] += 1;
+    t.tags += "a tag longer than twenty-three bytes, too";
+    printf("%zu %d %d %zu\n", t.ages.count(), t.ages["a name much longer than twenty-three bytes"], t.ages["bo"], t.tags.count());
+    s.ages.free(); s.tags.free(); t.ages.free(); t.tags.free(); text.free();
+}

@@ -1,0 +1,1 @@
+:1: error: [[musttail]] needs `return f(...);` with f the function itself

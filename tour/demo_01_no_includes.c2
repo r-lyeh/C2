@@ -1,0 +1,6 @@
+// .c2 files always see the common headers: stdio, string, stdlib, math, stdint, stddef.
+int main() {
+    char *s = strdup("no #include needed");
+    printf("%s, sqrt(2) = %.3f\n", s, sqrt(2));
+    free(s);
+}

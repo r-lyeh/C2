@@ -1,0 +1,93 @@
+// SDL3 loaded by hand: dlopen() + dlsym() into function pointers, no headers.  Run: c2 tour/demo_48_dlsym_sdl3.c2
+// make test: skipped (needs SDL3 and a display)
+//
+// Needs the SDL3 library: SDL3.dll on Windows (next to c2.exe, in the current folder or on PATH),
+// libSDL3.so.0 on Linux and libSDL3.dylib on macOS (on the library path: LD_LIBRARY_PATH /
+// DYLD_LIBRARY_PATH).  Only the functions used are declared, as pointers that dlsym() fills: full
+// control over what is loaded and when.  demo_49_ffi_sdl3.c2 does the same with a header.  Esc quits.
+
+#include <dlfcn.h>                              // LoadLibrary/GetProcAddress on Windows
+
+#if defined(_WIN32)
+#define SDL_LIB "SDL3.dll"
+#elif defined(__APPLE__)
+#define SDL_LIB "libSDL3.dylib"
+#else
+#define SDL_LIB "libSDL3.so.0"
+#endif
+
+// the bits of SDL3's API this demo uses
+#define SDL_INIT_VIDEO       0x20u
+#define SDL_WINDOW_RESIZABLE 0x20ull
+#define SDL_EVENT_QUIT       0x100
+#define SDL_EVENT_KEY_DOWN   0x300
+#define SDLK_ESCAPE          0x1bu
+
+typedef struct SDL_Window SDL_Window;
+typedef struct SDL_Renderer SDL_Renderer;
+typedef union SDL_Event {
+    uint32_t type;
+    struct { uint32_t type, reserved; uint64_t timestamp; uint32_t window, which, scancode, key; } key;
+    uint8_t padding[128];
+} SDL_Event;
+
+bool          (*SDL_Init)(uint32_t flags);
+void          (*SDL_Quit)(void);
+const char   *(*SDL_GetError)(void);
+SDL_Window   *(*SDL_CreateWindow)(const char *title, int w, int h, uint64_t flags);
+void          (*SDL_DestroyWindow)(SDL_Window *window);
+SDL_Renderer *(*SDL_CreateRenderer)(SDL_Window *window, const char *name = nullptr);   // C²: a default
+void          (*SDL_DestroyRenderer)(SDL_Renderer *renderer);
+bool          (*SDL_PollEvent)(SDL_Event *event);
+bool          (*SDL_SetRenderDrawColor)(SDL_Renderer *r, uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha = 255);
+bool          (*SDL_RenderClear)(SDL_Renderer *r);
+bool          (*SDL_RenderDebugText)(SDL_Renderer *r, float x, float y, const char *text);
+bool          (*SDL_SetRenderScale)(SDL_Renderer *r, float sx, float sy);
+bool          (*SDL_RenderPresent)(SDL_Renderer *r);
+uint64_t      (*SDL_GetTicks)(void);
+void          (*SDL_Delay)(uint32_t ms);
+
+static void *sdl;
+#define LOAD(fn) if (!(*(void **)&fn = dlsym(sdl, #fn))) { printf("%s not found in " SDL_LIB "\n", #fn); return false; }
+
+static bool load_sdl(void) {
+    sdl = dlopen(SDL_LIB, RTLD_NOW);
+    if (!sdl) { printf("cannot load " SDL_LIB ": put it next to this script or on the library path\n"); return false; }
+    LOAD(SDL_Init) LOAD(SDL_Quit) LOAD(SDL_GetError) LOAD(SDL_CreateWindow) LOAD(SDL_DestroyWindow)
+    LOAD(SDL_CreateRenderer) LOAD(SDL_DestroyRenderer) LOAD(SDL_PollEvent) LOAD(SDL_SetRenderDrawColor)
+    LOAD(SDL_RenderClear) LOAD(SDL_RenderDebugText) LOAD(SDL_SetRenderScale) LOAD(SDL_RenderPresent)
+    LOAD(SDL_GetTicks) LOAD(SDL_Delay)
+    return true;
+}
+
+int main() {
+    if (!load_sdl()) return 1;
+    if (!SDL_Init(SDL_INIT_VIDEO)) { printf("SDL_Init: %s\n", SDL_GetError()); return 1; }
+    SDL_Window *win = SDL_CreateWindow("Hello from C²", 640, 360, SDL_WINDOW_RESIZABLE);
+    SDL_Renderer *ren = win ? SDL_CreateRenderer(win) : nullptr;
+    if (!ren) { printf("window: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+
+    for (bool running = true; running;) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_EVENT_QUIT) running = false;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE) running = false;
+        }
+        float t = SDL_GetTicks() / 1000.0f;
+        SDL_SetRenderDrawColor(ren, 20, 24, 40 + (uint8_t)(20 * (1 + sinf(t))));   // alpha: default 255
+        SDL_RenderClear(ren);
+        SDL_SetRenderScale(ren, 3, 3);
+        SDL_SetRenderDrawColor(ren, 255, 220, 120);
+        SDL_RenderDebugText(ren, 28 + 10 * sinf(t * 2), 50, "Hello, world! from C2");
+        SDL_SetRenderScale(ren, 1, 1);
+        SDL_SetRenderDrawColor(ren, 160, 160, 180);
+        SDL_RenderDebugText(ren, 10, 340, "Esc to quit");
+        SDL_RenderPresent(ren);
+        SDL_Delay(16);
+    }
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+    dlclose(sdl);
+    return 0;
+}

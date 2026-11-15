@@ -1,0 +1,32 @@
+// structs that own things: a struct with string (or other [[destructor]]) members gets T_free and
+// T_copy, member by member, nested structs and arrays included, unless it defines them itself
+#import "runtime"
+struct item { string name; int count; };
+typedef struct { string name; item bag[2]; int hp; } player;
+struct manual { string tag; };
+void manual_free(manual *m) { printf("manual_free %s\n", m.tag.data()); m.tag.free(); }   // its own: kept
+
+player make(const char *n) { player p = {string(n), {{string("sword"), 1}, {string("potion"), 3}}, 100}; return p; }
+
+int main() {
+    player a = make("ada");
+    player b = a;                                    // a deep copy: names and bag
+    b.name += " the second";
+    b.bag[0].name += "!";
+    printf("%s %s %s | %s %s %d\n", a.name.data(), a.bag[0].name.data(), a.bag[1].name.data(),
+           b.name.data(), b.bag[0].name.data(), b.hp);
+    printf("%s\n", make("temp").name.data());        // a temporary player, freed with its strings
+    item it = a.bag[1];                              // a member copied out: its own string
+    it.name += "s";
+    printf("%s %s\n", it.name.data(), a.bag[1].name.data());
+    array(player) party;
+    array_push(party, a);                            // a copy goes in
+    array_push(party, make("bo"));                   // a temporary moves in
+    printf("%zu %s %s\n", array_count(party), party[0].name.data(), party[1].name.data());
+    for (size_t i = 0; i < array_count(party); i++) party[i].free();
+    array_free(party);
+    a.free(); b.free(); it.free();
+    manual m = {string("mine")};
+    m.free();
+    return 0;
+}

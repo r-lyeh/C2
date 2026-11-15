@@ -1,0 +1,2 @@
+#import "runtime/string"
+int main(void) { string a = string("a"); string b = 1 ? a : string("b"); return (int)b.len(); }

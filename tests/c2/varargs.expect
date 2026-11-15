@@ -1,0 +1,5 @@
+sum 6 0 avg 2.500 0.0 buf [x=42 (2.5)] 10
+i:7 l:1099511627776 d:3.14 s:str c:z 
+twice 5 ok
+twice 5 ok
+until 3 many 55

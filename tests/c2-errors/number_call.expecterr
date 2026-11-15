@@ -1,0 +1,1 @@
+:2: error: '21.f' is a float literal: write (21).f() to call f(21)

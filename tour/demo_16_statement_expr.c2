@@ -1,0 +1,5 @@
+// ({ ... }) is an expression whose value is its last statement's.
+int main() {
+    int sq = ({ int t = 11; t * t; });
+    printf("%d\n", sq);   // 121
+}

@@ -1,0 +1,1 @@
+:2: error: [[operator+]] 'v_add3' must take 2 parameters, not 3 (more are fine when they have defaults)

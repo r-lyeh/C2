@@ -1,0 +1,36 @@
+// runtime/string: string("..."), s[-1], a + b, a - b, f"..." (string temporaries, freed by its [[destructor]])
+#import "runtime/string"
+#include <stdio.h>
+static const char *L = "a long string that lives on the heap";
+string shout(string *s) { return *s + "!"; }
+
+int main(void) {
+    string hi = string("hello"), full = string(f"{hi} world");
+    printf("%s|%c|%c|%c\n", full.data(), full[-3], full[0], full[-1]);
+    full[-1] = 'D';
+    printf("%s / %s / [%s] / %s\n", full.data(), (full + full).data(), (full - full).data(), (full - "l").data());
+    string t = hi + "!" + "!" + string(L);
+    printf("%s %d %d %d\n", t.data(), t == "hello!!a long string that lives on the heap", hi == string("hello"), hi != full);
+    t -= "!";
+    t += hi;
+    t = t + t;
+    printf("%s %zu\n", t.data(), t.len());
+    string sh = shout(&hi);
+    printf("%s %s\n", sh.data(), shout(&sh).data());
+
+    int n = -7; unsigned u = 3000000000u; double kg = 2.5; char c = 'z'; long big = 1L << 40;
+    const char *name = "bob"; bool ok = true; float fl = 1.25f;
+    printf("%s\n", f"{n} {u} {kg} {c} {big} {name} {ok} {fl}".data());
+    printf("%s\n", f"[{n:5}] [{kg:.2f}] [{u:x}] [{n:+d}] [{name:6s}] [{name:-6}] [{c:d}] [{kg:08.3f}] {{braces}} 100%".data());
+    printf("%s\n", f"{(n < 0 ? \"neg\" : \"pos\")} {hi + \"!\"} {full[-1]} {f\"in{n}\"} {t.len()}".data());
+    string s = f"{full}, {full}, {full}";
+    printf("%s %zu\n", s.data(), s.len());
+    hi.free(); full.free(); t.free(); sh.free(); s.free();
+
+    string a = string("apple"), b = string("banana"), v = string("ab");
+    v += 'c';                                                  // a char
+    string w = "<<" + v + ">>";                                // text on the left
+    printf("%s %s\n", v.data(), w.data());
+    printf("%d %d %d %d %d %d\n", a < b, a > b, a <= a, b >= a, a < "apricot", a > "app");   // from <
+    a.free(); b.free(); v.free(); w.free();
+}

@@ -1,0 +1,2 @@
+long long f(long long n) { if (!n) return 0; [[musttail]] return 1 + f(n - 1); }
+int main() { return (int)f(3); }

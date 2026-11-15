@@ -1,0 +1,50 @@
+// A console: global("hero.hp") finds a global's part by name, .text() shows it, .set("250") changes
+// it from text.  Fields say what they accept: [[clamp(min, max)]] for numbers, [[clamp(N)]] for text, and
+// [[comment("...")]] for whoever reads a save.  globals() lists what there is to look at, and
+// eval("heal(hero, 20)") calls a function by name (defaults, named arguments, hero.method(...)).
+#import "runtime"
+#import "runtime/serial"
+enum Class { WARRIOR, MAGE };
+struct Hero {
+    [[clamp(8)]] string name;
+    [[clamp(0, 100), comment("0 is dead")]] int hp;
+    Class cls;
+};
+Hero hero;
+int heal(Hero *h, int amount = 10) { h.hp += amount; return h.hp; }
+
+void command(const char *line) {
+    if (strchr(line, '(')) {                          // a call
+        string result = {}, errors = {};
+        printf("> %s\n", line);
+        if (eval(line, &result, &errors)) printf("= %s\n", result.data());
+        else printf("%s", errors.data());
+        result.free(); errors.free();
+        return;
+    }
+    char verb[8], path[32], value[32] = "";
+    if (sscanf(line, "%7s %31s %31[^\n]", verb, path, value) < 2) return;
+    printf("> %s\n", line);
+    if (!strcmp(verb, "set")) {
+        string errors = {};
+        if (!(global(path)).set(value, &errors, path)) printf("%s", errors.data());
+        errors.free();
+    }
+    string now = (global(path)).text();
+    printf("%s = %s\n", path, now.data());
+    now.free();
+}
+
+int main() {
+    hero.name = string("Ada"); hero.hp = 75;
+    for (const c2global *g = globals(); g.name; g++) printf("%s: %s\n", g.name, g.type.name);
+    command("get hero");
+    command("set hero.hp 250");
+    command("set hero.name Bartholomew");
+    command("set hero.cls MAGE");
+    command("set hero.level 3");
+    command("heal(hero)");
+    command("heal(hero, amount: -40)");
+    puts(hero.json5().data());
+    hero.name.free();
+}

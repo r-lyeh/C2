@@ -1,0 +1,1 @@
+%Lf needs a real long double; in C² long double is double (passes on Windows, where they are the same)

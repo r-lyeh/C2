@@ -1,0 +1,12 @@
+// c2-abi: a second script compiled ahead of time with `c2 -C -prefix other_`, linked into the same program
+// as aot.c2: both carry the runtime's string, which must not clash (other_string_len...).
+#import "runtime"
+int calls;
+const char *describe(int n) {
+    static char out[64];
+    calls++;
+    string s = f"other {n} ({calls})";
+    snprintf(out, sizeof out, "%s", s.data());
+    s.free();
+    return out;
+}

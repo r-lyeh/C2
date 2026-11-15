@@ -1,0 +1,10 @@
+/* .c2: stddef, stdint, stdio, string, stdlib and math are always included */
+int main(void) {
+    uint8_t b = 250;
+    size_t n = strlen("hello");
+    char *p = malloc(n + 1);
+    strcpy(p, "hello");
+    printf("%d %zu %s %g %d\n", (uint8_t)(b + 10), n, p, sqrt(16.0), INT32_MAX > 0);
+    free(p);
+    return 0;
+}

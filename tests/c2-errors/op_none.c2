@@ -1,0 +1,3 @@
+struct V { int x; };
+[[operator+]] V v_add(V a, V b) { return (V){a.x + b.x}; }
+int main() { V a, b; V c = a - b; return c.x; }

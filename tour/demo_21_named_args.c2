@@ -1,0 +1,7 @@
+// With defaults, arguments can be skipped by naming the ones you set: Swift style or with a dot.
+void spawn(const char *what, int x = 0, int y = 0, int count = 1) { printf("%d %s at %d,%d\n", count, what, x, y); }
+int main() {
+    spawn("orc", y: 7);
+    spawn("bat", count: 3, x: 5);
+    spawn("slime", .y = 2); // C99 named args are accepted as well
+}

@@ -1,0 +1,2 @@
+struct S { [[rename("p")]] int x, y; };
+int main() {}

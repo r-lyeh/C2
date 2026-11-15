@@ -1,0 +1,318 @@
+// runtime/reflect.c2: types described at run time.  reflect(T) or reflect(expr), like sizeof, gives a
+// const c2type * the compiler built: the type's name, kind, size, its fields with their exact offsets,
+// an enum's names and values, a container's element types, and its [[destructor]] and [[copy]].
+//
+//   for each_member(Player, m) printf("%s at +%d\n", m.name, m.offset);
+//   printf("%s\n", enum_name(reflect(Dir), EAST));     // "EAST"
+//   hero.print();                                       // Player { name = "Ada", hp = 75, ... }
+//   string s = hero.text();                             // the same, as a string
+//   any x = global("player.pos.x");                     // a global's part, by name: x.type, x.p
+//   any y = hero.find("pos.y");                         // a value's part
+//
+// any is a value and its type.  A parameter of type any takes any value (the compiler passes
+// (any){reflect(T), &x}), and x.f() on any value falls back to any_f(x): functions named any_* are
+// methods of every value: hero.print(), hero.text(), hero.find(path); and, from runtime/serial,
+// hero.json5(), hero.save(path), hero.load(path)...
+//
+// Every type is reflected, unless [[skip]] is on its struct, union, enum or typedef: then reflection
+// knows nothing about it.  [[skip]] on a field keeps the field in the table, with C2_SKIP in its flags;
+// each_member, print and the serializers leave it out.
+// A module: #import "runtime/reflect" (part of #import "runtime").
+#import "string"
+#import "array"
+#import "map"
+
+[[export]] enum c2kind {
+    C2_VOID, C2_BOOL, C2_CHAR, C2_INT, C2_UINT, C2_FLOAT, C2_ENUM,
+    C2_PTR, C2_ARRAY, C2_FUNC, C2_STRUCT, C2_UNION,
+    C2_STRING, C2_DYNARRAY, C2_MAP, C2_SET,        // the runtime's string, array(T), map(K, V), set(K)
+};
+[[export]] enum { C2_SKIP = 1, C2_CLAMP = 2 };      // c2field.flags: [[skip]], [[clamp(min, max)]]
+
+[[export]] typedef struct c2type c2type;
+[[export]] typedef struct c2field {
+    const char *name;
+    const c2type *type;      // NULL: a [[skip]] type
+    int offset;              // bytes from the start of the struct (a bit-field's storage unit)
+    int bits, bitpos;        // a bit-field's width and position in its unit; 0 bits: not a bit-field
+    int flags;               // C2_SKIP
+    const char *key;         // [[rename("hp")]]: the name saves use; NULL: name
+    const char *comment;     // [[comment("...")]], or NULL
+    double min, max;         // [[clamp(min, max)]], when flags has C2_CLAMP (a list: each item)
+    int maxlen;              // [[clamp(N)]]: characters, for text; 0: none
+} c2field;
+[[export]] typedef struct c2enum { const char *name; long long value; } c2enum;
+[[export]] struct c2type {
+    const char *name;        // "Player", "int", "float *", "char [8]", "array(int)", "map(int, float)"
+    int kind, size, align;   // c2kind
+    const c2type *of;        // pointee, element, an enum's underlying type, a map's or set's key
+    const c2type *val;       // a map's value
+    int count;               // array length, number of fields, number of enum values
+    const c2field *fields;   // struct, union
+    const c2enum *values;    // enum
+    void (*free)(void *);                       // the [[destructor]], or NULL
+    void (*copy)(void *dst, const void *src);   // the [[copy]], or NULL
+    void *const *keyops;      // as a map key ([[operator==]] and T_hash): {equal, hash, copy, free}; or NULL
+};
+
+// the name of an enum's value, or NULL when no enumerator has it
+[[export]] const char *enum_name(const c2type *t, long long v) {
+    for (int i = 0; t && i < t.count; i++) if (t.values[i].value == v) return t.values[i].name;
+    return NULL;
+}
+
+// loops over a struct's fields, m a const c2field *: for each_member(Player, m) ... m.name, m.type, m.offset.
+// [[skip]] fields are left out (the table itself still has them, marked C2_SKIP).
+[[export]] const c2field *member_next(const c2field *m, const c2field *end) {
+    while (m < end && (m.flags & C2_SKIP)) m++;
+    return m;
+}
+#define each_member(T, m) (const c2field *m##_end_ = reflect(T).fields + reflect(T).count, \
+                           *m = member_next(reflect(T).fields, m##_end_); m < m##_end_; m = member_next(m + 1, m##_end_))
+#export each_member
+
+static long long int_at(const c2type *t, const void *p) {     // an integer of t's size, sign-extended
+    switch (t.size) {
+    case 1: return t.kind == C2_UINT || t.kind == C2_BOOL ? *(const unsigned char *)p : *(const signed char *)p;
+    case 2: return t.kind == C2_UINT ? *(const unsigned short *)p : *(const short *)p;
+    case 4: return t.kind == C2_UINT ? *(const unsigned *)p : *(const int *)p;
+    default: return *(const long long *)p;
+    }
+}
+static void quoted(string *out, const char *s, size_t n) {    // "text", with C escapes
+    out.append_c('"');
+    for (size_t i = 0; i < n && s[i]; i++) {
+        char c = s[i];
+        if (c == '"' || c == '\\') { out.append_c('\\'); out.append_c(c); }
+        else if (c == '\n') out.append("\\n");
+        else if (c == '\t') out.append("\\t");
+        else if ((unsigned char)c < 32) out.appendf("\\x%02x", (unsigned char)c);
+        else out.append_c(c);
+    }
+    out.append_c('"');
+}
+static size_t round_up(size_t n, int a) { return a > 1 ? (n + a - 1) / a * a : n; }
+
+// appends p's value, of type t, as text: Player { name = "Ada", hp = 75, pos = Vec { x = 3, y = 4 } }
+[[export]] void value_append(string *out, const c2type *t, const void *p) {
+    if (!t) { out.append("?"); return; }
+    switch (t.kind) {
+    case C2_VOID: out.append("void"); return;
+    case C2_BOOL: out.append(*(const bool *)p ? "true" : "false"); return;
+    case C2_CHAR: {
+        char c = *(const char *)p;
+        if (c >= 32 && c < 127 && c != '\'' && c != '\\') out.appendf("'%c'", c); else out.appendf("%d", c);
+        return;
+    }
+    case C2_INT: out.appendf("%lld", int_at(t, p)); return;
+    case C2_UINT: out.appendf("%llu", (unsigned long long)int_at(t, p) & (t.size < 8 ? (1ULL << t.size * 8) - 1 : ~0ULL)); return;
+    case C2_FLOAT: out.appendf("%g", t.size == 4 ? (double)*(const float *)p : *(const double *)p); return;
+    case C2_ENUM: {
+        long long v = int_at(t.of, p);
+        const char *n = enum_name(t, v);
+        if (n) out.append(n); else out.appendf("%lld", v);
+        return;
+    }
+    case C2_PTR: {
+        const void *q = *(const void *const *)p;
+        if (!q) out.append("NULL");
+        else if (t.of && t.of.kind == C2_CHAR) quoted(out, q, SIZE_MAX);   // char *: its text
+        else out.appendf("%p", q);
+        return;
+    }
+    case C2_FUNC: out.append("function"); return;
+    case C2_STRING: { string *sp = (string *)p; quoted(out, sp.data(), sp.len()); return; }
+    case C2_ARRAY: case C2_DYNARRAY: {
+        const char *base = t.kind == C2_ARRAY ? p : *(const char *const *)p;
+        size_t n = t.kind == C2_ARRAY ? (size_t)t.count : array_count(base);
+        if (t.kind == C2_DYNARRAY && !base) { out.append("[]"); return; }
+        if (t.of && t.of.kind == C2_CHAR && t.kind == C2_ARRAY) { quoted(out, base, n); return; }   // char [N]: text
+        out.append("[");
+        for (size_t i = 0; i < n; i++) {
+            if (i) out.append(", ");
+            value_append(out, t.of, base + i * (t.of ? t.of.size : 0));
+        }
+        out.append("]");
+        return;
+    }
+    case C2_MAP: case C2_SET: {
+        const char *e = *(const char *const *)p;
+        size_t n = map_count(e);
+        int ka = t.of ? t.of.align : 1, va = t.val ? t.val.align : 1;
+        size_t voff = t.val ? round_up(t.of.size, va) : 0;
+        size_t esize = round_up(t.val ? voff + t.val.size : t.of.size, ka > va ? ka : va);
+        out.append("{");
+        for (size_t i = 0; i < n; i++) {
+            if (i) out.append(", ");
+            value_append(out, t.of, e + i * esize);
+            if (t.val) { out.append(": "); value_append(out, t.val, e + i * esize + voff); }
+        }
+        out.append("}");
+        return;
+    }
+    case C2_STRUCT: case C2_UNION: {
+        out.append(t.name);
+        out.append(" {");
+        int first = 1;
+        for (int i = 0; i < t.count; i++) {
+            const c2field *f = &t.fields[i];
+            if ((f.flags & C2_SKIP) || !f.type) continue;
+            out.append(first ? " " : ", ");
+            first = 0;
+            if (f.name[0]) { out.append(f.name); out.append(" = "); }
+            if (f.bits) {                                              // a bit-field: from its unit
+                unsigned long long u = (unsigned long long)int_at(f.type, (const char *)p + f.offset);
+                long long v = (long long)((u >> f.bitpos) & ((1ULL << f.bits) - 1));
+                if (f.type.kind == C2_INT && (v >> (f.bits - 1)) & 1) v -= 1LL << f.bits;
+                out.appendf(f.type.kind == C2_UINT ? "%llu" : "%lld", v);
+            } else value_append(out, f.type, (const char *)p + f.offset);
+        }
+        out.append(first ? "}" : " }");
+        return;
+    }
+    }
+    out.append("?");
+}
+
+// a value and its type (type NULL: nothing, as find() gives for a missing part).  field: the field it is
+// (or is an item of: its [[clamp]] applies); bits, bitpos: a bit-field's (p is then its storage unit)
+[[export]] typedef struct any { const c2type *type; void *p; const c2field *field; int bits, bitpos; } any;
+
+// p's value, of type t, as a new string
+[[export]] string value_text(const c2type *t, const void *p) {
+    string s = {};
+    value_append(&s, t, p);
+    return s;
+}
+
+// x.text(): x's value as text: Player { name = "Ada", hp = 75, ... } ("?" for nothing)
+[[export]] string any_text(any v) {
+    string s = {};
+    if (!v.type) { s.append("?"); return s; }
+    if (v.bits) {
+        unsigned long long u = (unsigned long long)int_at(v.type, v.p);
+        long long n = (long long)((u >> v.bitpos) & ((1ULL << v.bits) - 1));
+        if (v.type.kind == C2_INT && (n >> (v.bits - 1)) & 1) n -= 1LL << v.bits;
+        s.appendf(v.type.kind == C2_UINT ? "%llu" : "%lld", n);
+        return s;
+    }
+    value_append(&s, v.type, v.p);
+    return s;
+}
+// x.print(): x's value and a newline, on stdout (or x.print(stderr))
+[[export]] void any_print(any v, FILE *stream = stdout) {
+    string s = any_text(v);
+    fputs(s.data(), stream);
+    fputc('\n', stream);
+    s.free();
+}
+
+// ---------------------------------------------------------------------------- by name
+
+// a global, as reflect_globals() lists them ({NULL} at the end)
+[[export]] typedef struct c2global { const char *name; const c2type *type; void *addr; } c2global;
+// a function a console can call by name, as reflect_functions() lists them ({NULL} at the end): the
+// program's own (not a module's), not variadic.  call(args, result): args[i] points to parameter i's
+// value, or is NULL for an optional one (its default is used); result: room for the result, or NULL
+[[export]] typedef struct c2param { const char *name; const c2type *type; int optional; } c2param;
+[[export]] typedef struct c2func { const char *name; const c2type *ret; int count; const c2param *params;
+                                   void (*call)(void **args, void *result); } c2func;
+
+static const c2field *field_named(const c2type *t, const char *name, size_t n, char **p) {
+    for (int i = 0; i < t.count; i++) {
+        const c2field *f = &t.fields[i];
+        if ((f.flags & C2_SKIP) || !f.type) continue;
+        if (!f.name[0] && (f.type.kind == C2_STRUCT || f.type.kind == C2_UNION)) {   // anonymous: its fields
+            char *q = *p + f.offset;
+            const c2field *g = field_named(f.type, name, n, &q);
+            if (g) { *p = q; return g; }
+            continue;
+        }
+        if ((strlen(f.name) == n && !strncmp(f.name, name, n)) || (f.key && strlen(f.key) == n && !strncmp(f.key, name, n))) return f;
+    }
+    return NULL;
+}
+
+static bool key_is(const c2type *t, const char *k, const char *name, size_t n) {   // a map's key, as text
+    char b[64];
+    const char *s = b;
+    switch (t.kind) {
+    case C2_STRING: s = ((string *)k).data(); break;
+    case C2_PTR: s = *(const char *const *)k; if (!s) return false; break;
+    case C2_ENUM: s = enum_name(t, int_at(t.of, k)); if (!s) return false; break;
+    case C2_INT: case C2_CHAR: snprintf(b, sizeof b, "%lld", int_at(t, k)); break;
+    case C2_UINT: snprintf(b, sizeof b, "%llu", (unsigned long long)int_at(t, k) & (t.size < 8 ? (1ULL << t.size * 8) - 1 : ~0ULL)); break;
+    default: return false;
+    }
+    return strlen(s) == n && !strncmp(s, name, n);
+}
+
+// the part of p (of type t) at path: "pos.x", "/pos/x", "bag[2].count", "scores[Ada]" (a map's key);
+// pointers to structs are followed
+[[export]] any reflect_path(const c2type *t, void *p, const char *path) {
+    any r = {t, p, NULL, 0, 0};
+    const char *s = path;
+    while (r.type && *s) {
+        if (*s == '/' || *s == '.') { s++; continue; }
+        if (r.bits) return (any){};                              // nothing inside a bit-field
+        bool bracket = *s == '[';
+        const char *name = s + bracket;
+        size_t n = bracket ? strcspn(name, "]") : strcspn(name, "./[");
+        if (bracket && name[n] != ']') return (any){};
+        s = name + n + bracket;
+        if (!n) return (any){};
+        const c2type *t = r.type;
+        char *at = r.p;
+        if (t.kind == C2_PTR && t.of && (t.of.kind == C2_STRUCT || t.of.kind == C2_UNION)) {   // followed
+            at = *(char **)at;
+            if (!at) return (any){};
+            t = t.of;
+        }
+        char *end;
+        long long index = strtoll(name, &end, 10);
+        bool numeric = end == name + n && n;
+        switch (t.kind) {
+        case C2_STRUCT: case C2_UNION: {
+            const c2field *f = field_named(t, name, n, &at);
+            if (!f) return (any){};
+            r = (any){f.type, at + f.offset, f, f.bits, f.bitpos};
+            break;
+        }
+        case C2_ARRAY: case C2_DYNARRAY: {
+            char *base = t.kind == C2_ARRAY ? at : *(char **)at;
+            size_t count = t.kind == C2_ARRAY ? (size_t)t.count : array_count(base);
+            if (!numeric || index < 0 || (size_t)index >= count || !t.of) return (any){};
+            r = (any){t.of, base + (size_t)index * t.of.size, r.field, 0, 0};
+            break;
+        }
+        case C2_MAP: {
+            char *e = *(char **)at;
+            int ka = t.of.align, va = t.val.align;
+            size_t voff = round_up(t.of.size, va), esize = round_up(voff + t.val.size, ka > va ? ka : va);
+            size_t i = 0, count = map_count(e);
+            while (i < count && !key_is(t.of, e + i * esize, name, n)) i++;
+            if (i == count) return (any){};
+            r = (any){t.val, e + i * esize + voff, r.field, 0, 0};
+            break;
+        }
+        default: return (any){};
+        }
+    }
+    return r;
+}
+
+// a global's part by name, in a table from reflect_globals(): "player.pos.x"
+[[export]] any reflect_global(const c2global *gs, const char *path) {
+    while (*path == '/') path++;
+    size_t n = strcspn(path, "./[");
+    for (const c2global *g = gs; g && g.name; g++)
+        if (strlen(g.name) == n && !strncmp(g.name, path, n)) return reflect_path(g.type, g.addr, path + n);
+    return (any){};
+}
+// x.find("pos.x"): a part of x by path (type NULL when there's none)
+[[export]] any any_find(any v, const char *path) { return v.bits ? (any){} : reflect_path(v.type, v.p, path); }
+// global("player.hp"): the program's global player, its field hp; globals(), functions(): the lists
+#define global(path) reflect_global(reflect_globals(), (path))
+#define globals() reflect_globals()
+#define functions() reflect_functions()
+#export global globals functions

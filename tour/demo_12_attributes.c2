@@ -1,0 +1,11 @@
+// More [[attributes]]: [[nodiscard]] and [[deprecated("why")]] warn at the call; the program still runs.
+// New [[unroll(N)]] compiles a loop's body N times in a row: one jump back per N iterations.
+[[nodiscard]] int must_use(void) { return 1; }
+[[deprecated("use new_api")]] void old_api(void) {}
+int main() {
+    must_use();   // warning: the result of 'must_use' is discarded
+    old_api();    // warning: 'old_api' is deprecated: use new_api
+    int a[10] = {3, 1, 4, 1, 5, 9, 2, 6, 5, 3}, sum = 0;
+    [[unroll(4)]] for (int i = 0; i < 10; i++) sum += a[i];
+    printf("%d\n", sum);
+}

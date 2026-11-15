@@ -1,0 +1,17 @@
+// [[pure]] (C23 [[reproducible]], gcc's pure): a call does nothing but compute its result, so a
+// discarded one is a mistake; [[unsequenced]] (gcc's const) too.  A pure function that writes a global
+// or calls one that isn't pure is warned about
+[[pure]] int sq(int x) { return x * x; }
+[[unsequenced]] int cube(int x) { return x * x * x; }
+[[reproducible]] int twice(int x) { return 2 * x; }
+int calls;
+[[pure]] int noisy(int x) { calls++; printf("%d\n", x); return sq(x) + (int)sqrt(x); }   // not pure after all
+[[pure]] int fine(int x) { int t[2] = {x, sq(x)}; t[0]++; return t[0] + t[1] + calls; }   // its own locals, reads: fine
+int main() {
+    sq(3);
+    cube(2);
+    twice(1);
+    (void)sq(2);
+    printf("%d\n", sq(4) + cube(1) + twice(1) + noisy(1) + fine(2));
+    return 0;
+}

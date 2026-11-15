@@ -1,0 +1,1 @@
+:3: error: no 'f' takes a 'struct vec3' first (there are: vec2_f, int_f)

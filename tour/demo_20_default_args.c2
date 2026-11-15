@@ -1,0 +1,5 @@
+// Optional parameters: the default is evaluated at each call that leaves it out, and can use earlier ones.
+int box(int w, int h = 10, int d = w * 2) { return w * h * d; }
+int main() {
+    printf("%d %d %d\n", box(2), box(2, 3), box(2, 3, 4));   // 80 24 24
+}

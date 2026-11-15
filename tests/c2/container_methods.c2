@@ -1,0 +1,22 @@
+// .c2: a runtime container's macros as methods: a.push(x) is array_push(a, x), seen.add(k), m.set(k, v),
+// m.at(k) += 1, x.free(): on locals, members and parameters; `.set(` after a dot is never the set() macro
+#import "runtime"
+struct Bag { array(int) items; map(const char *, int) ages; };
+size_t total(array(int) a) { size_t n = 0; for (size_t i = 0; i < a.count(); i++) n += a[i]; return n; }
+int main() {
+    array(int) a;
+    for (int i = 1; i <= 5; i++) a.push(i * i);
+    printf("%zu items, last %d, popped %d, now %zu, total %zu\n", a.count(), a.last(), a.pop(), a.count(), total(a));
+    a.free();
+    printf("after free: %zu %d\n", a.count(), a == NULL);
+    Bag b = {};
+    b.items.push(7); b.items.push(8);
+    b.ages.set("ana", 31);
+    b.ages.at("bo") += 7;
+    printf("%zu %d %d %zu %d\n", b.items.count(), *b.ages.get("ana"), *b.ages.get("bo"), b.ages.count(), b.ages.has("cy"));
+    b.items.free(); b.ages.free();
+    set(int) seen;
+    for (int i = 0; i < 10; i++) seen.add(i % 3);
+    printf("%zu distinct, has 2: %d\n", seen.count(), seen.has(2));
+    seen.free();
+}

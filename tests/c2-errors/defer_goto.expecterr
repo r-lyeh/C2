@@ -1,0 +1,1 @@
+:1: error: goto in a function that uses defer is not supported

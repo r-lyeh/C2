@@ -1,0 +1,1 @@
+:2: error: [[clamp(N)]] is for text (string, char [N]), not int ('hp'); numbers take [[clamp(min, max)]]

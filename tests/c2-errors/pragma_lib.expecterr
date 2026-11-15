@@ -1,0 +1,1 @@
+:1: error: #pragma comment(lib): cannot load library 'c2_no_such_library' (not found on the system's library path nor in the current folder)

@@ -1,0 +1,29 @@
+// One loop for everything: for (T x : things).  Ranges are half-open, the way
+// C's loops are: 0..n is 0 to n-1, n..0 is n-1 down to 0, and a third part is the step (0..n..2,
+// n..0..-2).  Text walks as bytes (char) or as UTF-8 characters (u32).  An array, an array(T), a map
+// or a set walks its items: T x copies each one, T *x points at it, so it can be changed.
+#import "runtime"
+int main() {
+    for (int i : 0..5) printf("%d ", i);
+    puts("");
+    for (int i : 10..0..-3) printf("%d ", i);           // 9 6 3 0
+    puts("");
+    string word = string("añil");
+    for (char c : word) printf("%02x ", (unsigned char)c);
+    printf("| ");
+    for (u32 c : word) printf("U+%04X ", c);
+    puts("");
+    array(int) scores;
+    for (int i : 1..5) scores.push(i * 10);
+    for (int *s : scores) *s += 1;                       // in place
+    int total = 0;
+    for (int s : scores) total += s;
+    printf("total %d\n", total);
+    map(const char *, int) ages;
+    ages.set("ana", 31);
+    ages.set("bo", 7);
+    for (auto *e : ages) printf("%s is %d\n", e.key, e.value);
+    for (const char *name : ages.keys()) printf("%s ", name);
+    puts("");
+    word.free(); scores.free(); ages.free();
+}

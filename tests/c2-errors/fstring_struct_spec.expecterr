@@ -1,0 +1,1 @@
+:3: error: f-string: {v:d} on a 'struct V': {v} prints its fields

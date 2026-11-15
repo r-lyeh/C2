@@ -1,0 +1,8 @@
+b: live 2 copies 1
+b = a: live 2 copies 3
+weapon 2: live 4 copies 4
+make: live 4 copies 4
+?: 1 live 5 copies 5
+bag: 5 live 7 copies 6
+end: live 0 copies 6
+a string long enough to live on the heap | a string long enough to live on the heap!

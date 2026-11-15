@@ -1,0 +1,7 @@
+// enforce an array's length in parameters: int v[3] takes exactly an array of 3.
+int sum3(int v[3]) { return v[0] + v[1] + v[2]; }
+int sum_any(int v[static 3]) { return v[0] + v[1] + v[2]; }   // C's "at least 3" still works
+int main() {
+    int three[3] = {1, 2, 3}, four[4] = {10, 20, 30, 40};
+    printf("%d %d\n", sum3(three), sum_any(four));   // sum3(four), or sum3 of an int *, wouldn't compile
+}

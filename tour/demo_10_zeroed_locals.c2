@@ -1,0 +1,5 @@
+// Locals of any type without an initializer start zeroed: numbers, pointers, structs, arrays.
+int main() {
+    int n; char *p; int a[4]; struct Vec2 { float x,y; } v;
+    printf("%d %d %d %g\n", n, p == NULL, a[3], v.y);   // 0 1 0 0
+}

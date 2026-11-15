@@ -1,0 +1,26 @@
+// [[nodiscard]] and [[deprecated]] warn (on stderr); the other standard attributes are accepted and ignored
+[[nodiscard]] int must_use(int x) { return x * 2; }
+[[nodiscard("check the error")]] int open_thing(void) { return -1; }
+[[deprecated]] void old_api(void) {}
+[[deprecated("use new_api()")]] int older_api(int x) { return x; }
+int plain(int x) { return x; }
+struct S { int v; };
+[[nodiscard]] S *S_bump(S *s) { s->v++; return s; }
+[[maybe_unused]] static int unused;
+int main() {
+    must_use(1);                 // warns
+    open_thing();                // warns
+    (void)must_use(2);           // fine
+    int a = must_use(3);         // fine
+    a = must_use(4);             // fine
+    if (must_use(5)) a++;        // fine
+    plain(must_use(6));          // fine: the result is used as an argument
+    old_api();                   // warns
+    older_api(1);                // warns
+    S s = {0};
+    s.bump();                    // warns (method)
+    s.bump().bump().v++;         // fine
+    switch (a) { case 1: a++; [[fallthrough]]; case 2: break; }
+    printf("%d %d\n", a, s.v);
+    return 0;
+}

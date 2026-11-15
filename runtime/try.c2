@@ -1,0 +1,21 @@
+// runtime/try.c2: try/throw, errors that leave many calls at once.  try(fn, arg) runs fn(arg) and returns 0,
+// unless something below it calls throw(code): then every call in between returns at once and try
+// returns the code.  On the way out their defers run and their temporaries are destroyed, as `return`
+// would do.  A throw inside a coroutine ends it, and goes on from the co_resume() that ran it.
+//
+//   void load(void *path) { FILE *f = fopen(path, "rb"); if (!f) throw(404); defer fclose(f); ... }
+//   int err = try(load, "level1.map");
+//   if (err) printf("level failed: %d\n", err);
+//
+// How: the compiler sees the throw() calls, and then follows every call with a check of a flag that
+// throw sets (a load and a branch).  Programs without a throw() pay nothing.  C code in between (a
+// callback from qsort, say) isn't checked: it carries on until it returns to C² code.
+// throw(0), and a throw outside of a try, abort.  A module: #import "runtime/try" (part of #import "runtime").
+
+int __c2_try(void (*fn)(void *), void *arg);  // the host's glue (c2.c)
+void __c2_throw(int code);
+
+// runs fn(arg): 0 when it returns, or the code that a throw() below it gave
+[[export]] int try(void (*fn)(void *arg), void *arg = NULL) { return __c2_try(fn, arg); }
+// back to the innermost try, which returns code (not 0)
+[[export]] void throw(int code) { __c2_throw(code); }

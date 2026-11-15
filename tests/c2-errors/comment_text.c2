@@ -1,0 +1,2 @@
+struct S { [[comment(hp)]] int hp; };
+int main() {}

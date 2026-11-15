@@ -1,0 +1,5 @@
+// flags: -sandbox
+// what C2_sandbox refuses outright: what C2 has no table entry for, found by name in the C library
+// (strnlen: in glibc, macOS's libc and ucrtbase.dll alike, and not in C²'s table)
+size_t strnlen(const char *s, size_t n);
+int main() { return strnlen("abc", 8) == 3 ? 0 : 1; }

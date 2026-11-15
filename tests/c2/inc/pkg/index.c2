@@ -1,0 +1,2 @@
+// a folder module: #import "inc/pkg" finds inc/pkg/index.c2 (there is no inc/pkg.c2 or inc/pkg/pkg.c2)
+[[export]] int pkg_answer(void) { return 42; }

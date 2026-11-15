@@ -1,0 +1,39 @@
+// [[destructor]]: a call's T result is a temporary, destroyed at the end of its statement unless it is
+// stored, assigned or returned.  `live` counts the objects that exist.
+#include <stdio.h>
+struct res { int id; };
+static int live, made;
+res res(int id) { live++; made++; return (res){id}; }
+[[destructor]] void res_free(res *r) { if (r.id) live--; r.id = 0; }
+int res_get(res *r) { return r.id; }
+[[operator+]] res res_add(res *a, res *b) { return res(a.id * 10 + b.id); }
+[[operator==]] bool res_eq(res *a, int id) { return a.id == id; }
+res pick(int c) { return c ? res(7) : res(8); }
+size_t borrow(res r) { return (size_t)r.id; }
+
+int main(void) {
+    res a = res(1);                                     // stored: a owns it
+    printf("%d live=%d\n", a.get(), live);
+    res(2);                                             // made and destroyed here
+    printf("live=%d\n", live);
+    printf("%d live=%d\n", (a + res(3)).get(), live);    // 13 and 3: both gone after the statement
+    printf("live=%d\n", live);
+    res b = a + res(4) + res(5);                        // 145 kept; 4, 14 and 5 destroyed
+    printf("%d live=%d\n", b.get(), live);
+    b = b + a;                                          // the old b is destroyed before the new one moves in
+    printf("%d live=%d\n", b.get(), live);
+    if (res(9) == 9) printf("if: live=%d\n", live);     // the condition's temporary is gone before the branch
+    int n = 0;
+    while (res(n + 1) == n + 1 && n < 3) n++;   // (id 0 would be an empty res)
+    printf("while: n=%d live=%d\n", n, live);
+    for (int i = 0; i < 2; i++, borrow(res(i))) borrow(res(100));
+    printf("for: live=%d\n", live);
+    res c = pick(1);
+    res d = 0 ? res(20) : res(21);                      // ?: of two temporaries is one
+    res e = ({ res t = res(30); res_free(&t); res(31); });
+    printf("%d %d %d live=%d\n", c.get(), d.get(), e.get(), live);
+    switch (res(5).get()) { case 5: printf("switch: live=%d\n", live); }
+    printf("%zu live=%d\n", sizeof((res(1) + res(2)).get()), live);   // sizeof: nothing made
+    res_free(&a); res_free(&b); res_free(&c); res_free(&d); res_free(&e);
+    printf("end: live=%d made=%d\n", live, made);
+}

@@ -1,0 +1,18 @@
+// flags: -g
+// c2 -g: each frame shows its parameters and the variables in scope, with their values at the crash
+struct vec { float x, y; };
+int pick(int *table, unsigned n, double scale, char tag, bool on) {
+    long sum = 0;
+    vec v = {1, 2};
+    for (unsigned i = 0; i < n; i++) {
+        int got = table[i] * (int)scale;           // table is NULL when n is 3
+        sum += got;
+    }
+    return (int)sum + (int)v.x + tag + on;
+}
+int main() {
+    int ok[2] = {1, 2};
+    int a = pick(ok, 2, 1.5, 'k', true);
+    float f = 2.5f;
+    return pick(NULL, 3, f, 'z', false) + a;
+}

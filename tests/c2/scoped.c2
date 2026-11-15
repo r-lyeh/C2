@@ -1,0 +1,21 @@
+// file-scoped macros: a .h2 header keeps its macros to itself, except what it #exports
+#define MAIN_CONFIG 42
+#include "inc/scoped_util.h2"
+#include "inc/scoped_guard.h2"
+#include "inc/scoped_guard.h2"
+#include "inc/scoped_plain.h"
+#define MIN 5                    // our own MIN: no clash with the header's
+
+int main() {
+#ifdef SQ
+    puts("SQ leaked");
+#endif
+#ifdef HIDDEN
+    puts("HIDDEN leaked");
+#endif
+#ifdef SCOPED_GUARD_H2
+    puts("guard leaked");
+#endif
+    printf("%d %d %d %d %d %d %d\n", MIN, CLAMP(15, 0, 10), CLAMP(-3, 0, 10), util_min(4, 9),
+           UTIL_VERSION, guarded + plain_cfg, PLAIN_LEAKS);
+}

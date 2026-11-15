@@ -1,0 +1,42 @@
+// SDL3 through its header and #pragma comment(lib, "SDL3"), as LuaJIT's ffi.cdef + ffi.load: the calls are
+// plain C calls, resolved from the library when the script is linked.  Run: c2 tour/demo_49_ffi_sdl3.c2
+// make test: skipped (needs SDL3 and a display)
+//
+// A library name without a dot gets the platform's prefix and extension ("SDL3": SDL3.dll, libSDL3.dylib,
+// libSDL3.so); one with a dot is that exact file.  Either is looked for by the system, then here.  A host program
+// does the same with C2_load(c2, "inc/sdl3.h", "SDL3"), or the command line with -load inc/sdl3.h,SDL3.
+#include "inc/sdl3.h"
+#if defined(_WIN32)
+#pragma comment(lib, "SDL3")                  // SDL3.dll
+#elif defined(__APPLE__)
+#pragma comment(lib, "libSDL3.dylib")
+#else
+#pragma comment(lib, "libSDL3.so.0")
+#endif
+
+int main() {
+    if (!SDL_Init(SDL_INIT_VIDEO)) { printf("SDL_Init: %s\n", SDL_GetError()); return 1; }
+    SDL_Window *win = SDL_CreateWindow("Hello from C²", 640, 360, SDL_WINDOW_RESIZABLE);
+    SDL_Renderer *ren = win ? SDL_CreateRenderer(win, nullptr) : nullptr;
+    if (!ren) { printf("window: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+
+    for (bool running = true; running;) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e))
+            if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_ESCAPE)) running = false;
+        float t = SDL_GetTicks() / 1000.0f;
+        SDL_SetRenderDrawColor(ren, 20, 24, 40 + (uint8_t)(20 * (1 + sinf(t))), 255);
+        SDL_RenderClear(ren);
+        SDL_SetRenderScale(ren, 3, 3);
+        SDL_SetRenderDrawColor(ren, 255, 220, 120, 255);
+        SDL_RenderDebugText(ren, 28 + 10 * sinf(t * 2), 50, "Hello, world! from C2");
+        SDL_SetRenderScale(ren, 1, 1);
+        SDL_SetRenderDrawColor(ren, 160, 160, 180, 255);
+        SDL_RenderDebugText(ren, 10, 340, "Esc to quit");
+        SDL_RenderPresent(ren);
+        SDL_Delay(16);
+    }
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+}

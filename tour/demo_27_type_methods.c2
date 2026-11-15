@@ -1,0 +1,7 @@
+// x.f() looks for T_f() first, so every type can have its own len(), print()... without clashing.
+struct Vec { float x, y; };
+float Vec_len(Vec v) { return sqrtf(v.x * v.x + v.y * v.y); }
+int main() {
+    Vec v = {3, 4};
+    printf("%g\n", v.len());   // Vec_len(v): 5
+}

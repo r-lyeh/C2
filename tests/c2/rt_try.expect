@@ -1,0 +1,25 @@
+42
+ok runs
+0
+inner gave 7
+9
+42000 1001
+  1
+  loop defer 0
+  3
+  loop defer 1
+  5
+  loop defer 2
+  loop defer 3
+  defer of cleanup ran
+cleanup: 3, live 0
+step 0
+frame
+step 1
+frame
+step 2
+frame
+driver: 5
+qsort: 7
+6
+pointer: 2

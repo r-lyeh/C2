@@ -1,0 +1,1 @@
+int main(void) { int n = 1; (void)f"{n}"; return 0; }

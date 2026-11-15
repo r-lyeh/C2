@@ -1,0 +1,11 @@
+// Documents: doc.parse(text) (or doc.open(path) for a file) gives a tree of nodes from JSON5 or XML, read
+// by path: "/window/width", "levels[2].name", XML's "@attribute".  A default covers a missing value.
+#import "runtime/doc"
+int main() {
+    doc cfg = doc.parse("window: { width: 1280, title: 'C²' }, levels: [{name: 'cave'}, {name: 'tower'}]");
+    printf("%lld x %lld, %s\n", cfg.integer("/window/width"), cfg.integer("/window/height", 720), cfg.text("window.title"));
+    for (int i = 0; i < cfg.count("levels"); i++) printf("level %d: %s\n", i, cfg.text(f"levels[{i}].name".data()));
+    doc ui = doc.parse("<ui><button id='ok' w='80'>OK</button><button id='no'>Cancel</button></ui>");
+    printf("%d buttons, the first '%s' (%s, %lld wide)\n", ui.count("/button"), ui.text("/button"), ui.text("/button/@id"), ui.integer("/button/@w"));
+    cfg.free(); ui.free();
+}

@@ -1,0 +1,6 @@
+// countof(array) is its number of elements; on a pointer it is an error, not a wrong number.
+int main() {
+    int primes[] = {2, 3, 5, 7, 11};
+    for (int i = 0; i < countof(primes); i++) printf("%d ", primes[i]);
+    puts("");
+}

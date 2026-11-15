@@ -1,0 +1,2 @@
+#pragma comment(lib, "c2_no_such_library")
+int main() { return 0; }

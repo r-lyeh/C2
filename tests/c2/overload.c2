@@ -1,0 +1,32 @@
+// receiver overloading: functions that differ in their first parameter share a name; the receiver picks one
+// (symbols <receiver>_<name>: vec2_load, int_print, str_print)
+struct vec2 { float x, y; };
+struct vec3 { float x, y, z; };
+typedef struct { int hp; } Unit;                    // anonymous struct, named by its typedef
+
+void load(vec2 *v, float k = 1) { v.x = 1 * k; v.y = 2 * k; }
+void load(vec3 *v, float k = 1) { v.x = 3 * k; v.y = 4 * k; v.z = 5 * k; }
+void load(Unit *u, float k = 1) { u.hp = (int)(100 * k); }
+
+float len2(vec2 v) { return v.x * v.x + v.y * v.y; }
+float len2(const vec3 *v) { return v.x * v.x + v.y * v.y + v.z * v.z; }
+
+void print(int x) { printf("int %d\n", x); }
+void print(double x) { printf("double %g\n", x); }
+void print(const char *s) { printf("str %s\n", s); }
+void print(vec2 v) { printf("vec2 %g %g\n", v.x, v.y); }
+
+int main() {
+    vec2 a; vec3 b; Unit u;
+    load(&a);                                      // f(x, ...)
+    b.load(2);                                     // x.f(...)
+    u.load(k: 0.5);
+    printf("%g %g | %g %g %g | %d\n", a.x, a.y, b.x, b.y, b.z, u.hp);
+    printf("%g %g\n", len2(a), b.len2());
+    print(42); print(2.5); print("hi"); print(a);
+    short s = 7; print(s);                         // short promotes to int
+    21.print(); "there".print(); a.print();
+    void (*pv)(vec2 *, float) = vec2_load;         // each one keeps a name of its own
+    pv(&a, 10); a.print();
+    return 0;
+}

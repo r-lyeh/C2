@@ -1,0 +1,3 @@
+int calls = 1000;                            // another module's private `calls` and `clamp_`
+int clamp_(int x) { return -x; }
+[[export]] int other_calls(void) { return calls + clamp_(1); }

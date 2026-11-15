@@ -1,0 +1,9 @@
+// x.f(a) calls f(x, a); when f takes a pointer, &x is passed, so f can change x.
+struct Counter { int n; };
+void add(Counter *c, int k) { c.n += k; }
+int main() {
+    Counter c = {0};
+    c.add(5);
+    c.add(2);
+    printf("%d\n", c.n);   // 7
+}

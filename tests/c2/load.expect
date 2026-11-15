@@ -1,0 +1,59 @@
+json5 round trip: ok 1 same 1 cache 5 errors ''
+<?xml version="1.0" encoding="UTF-8"?>
+<Hero>
+  <name>Ada "the" &lt;Bold&gt; &amp; co</name>
+  <health>75</health>
+  <pos>
+    <x>3.0</x>
+    <y>4.5</y>
+  </pos>
+  <cls>MAGE</cls>
+  <bag>
+    <item>
+      <name>sword</name>
+      <count>1</count>
+    </item>
+    <item>
+      <name>potion</name>
+      <count>3</count>
+    </item>
+  </bag>
+  <skills>
+    <item key="fire">3</item>
+    <item key="two words">1</item>
+  </skills>
+  <wins>
+    <item key="MAGE">2</item>
+    <item key="WARRIOR">0</item>
+  </wins>
+  <xp>
+    <item key="1">10.5</item>
+    <item key="2">Infinity</item>
+  </xp>
+  <visited>
+    <item>4</item>
+    <item>9</item>
+  </visited>
+  <tag>hero</tag>
+  <alive>true</alive>
+  <speed>1.1</speed>
+  <gold>-0.25</gold>
+  <level>17</level>
+  <mood>-2</mood>
+  <fixed>
+    <item>7</item>
+    <item>0</item>
+    <item>9</item>
+  </fixed>
+</Hero>
+xml round trip: ok 1 same 1 errors ''
+bad: ok 0 hp 1
+Hero.name: text expected, not a number
+Hero.health: an integer expected, not text
+Hero.cls: a Class expected (WARRIOR, ...), not 'ROGUE'
+Hero.bag[0].count: an integer expected, not a number
+Hero.bag[1]: an object expected, not a number
+Hero.tag: text longer than 7 characters
+Hero.level: 99 doesn't fit 5 bits
+Hero.mood: 9 doesn't fit 3 bits
+Hero.fixed: 4 items, for 3 places

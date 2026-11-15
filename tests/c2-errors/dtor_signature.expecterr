@@ -1,0 +1,1 @@
+:2: error: [[destructor]] 'buf_free' must take one parameter, a T * (the object to free)

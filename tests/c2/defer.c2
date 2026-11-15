@@ -1,0 +1,66 @@
+int log_n;
+void say(const char *s) { printf("%s ", s); log_n++; }
+
+int early(int x) {
+    say("open");
+    defer say("close");
+    if (x) return 1;              // close runs here
+    {
+        defer say("inner");
+        say("body");
+    }                             // inner runs here
+    return 2;                     // close runs here
+}
+
+int value_before_defer() {
+    int v = 10;
+    defer v = 99;                 // runs after the return value is taken
+    return v;
+}
+
+void loops() {
+    for (int i = 0; i < 3; i++) {
+        defer printf("end%d ", i);
+        if (i == 1) continue;
+        if (i == 2) break;
+        printf("i%d ", i);
+    }
+    puts("");
+}
+
+int nested() {
+    defer { defer say("d2"); say("d1"); }
+    say("n");
+    return 0;
+}
+
+bool readfile(const char *x) {
+    FILE *fp = fopen(x, "rt");
+    if (!fp) return 0;
+    defer fclose(fp), puts("closed");
+    char buf[64]; fgets(buf, 64, fp); printf("%s", buf);
+    return 1;
+}
+
+int main() {
+    early(1); puts("");
+    early(0); puts("");
+    printf("%d\n", value_before_defer());
+    loops();
+    nested(); puts("");
+    readfile(__FILE__);   // prints this file's first line
+    int a[7]; int m[3][5];
+    printf("%d %d %d %d\n", (int)countof(a), (int)countof(m), (int)countof(m[0]), (int)countof(int[4]));
+    int n = 6; int vla[n];
+    printf("%d\n", (int)countof(vla));
+    static int g[countof(a) * 2];
+    printf("%d\n", (int)countof(g));
+    int sq = ({ int t = 7; t * t; });
+    struct P { int x, y; } p = ({ struct P q = {1, 2}; q; });
+    printf("%d %d %d %d\n", sq, p.x, p.y, ({ int k = 0; for (int i = 0; i < 5; i++) k += i; k; }));
+    #define MAX(a, b) ({ typeof(a) _a = (a); typeof(b) _b = (b); _a > _b ? _a : _b; })
+    int c = 3;
+    printf("%d %d\n", MAX(c++, 2), c);
+    ({ defer say("sx-defer"); say("sx"); }); puts("");
+    return 0;
+}

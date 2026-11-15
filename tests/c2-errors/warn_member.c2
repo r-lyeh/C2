@@ -1,0 +1,4 @@
+struct V { float x; int (*len)(void); };
+int seven(void) { return 7; }
+int V_len(V *v) { return 9; }
+int main() { V v = {1, seven}; printf("%d\n", v.len()); return 0; }

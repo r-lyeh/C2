@@ -1,0 +1,18 @@
+heal(hero)                         -> 65
+heal(hero, 4)                      -> 71
+heal(hero, bonus: 0)               -> 81
+hero.hit(30)                       -> 51
+half(5)                            -> 2.5
+hi Bo, mage
+greet('Bo')                        -> 
+hi Cy, warrior
+greet(Cy, WARRIOR)                 -> 
+title(hero)                        -> "Sir Ada"
+len(hero.pos)                      -> 5
+len({x: 6, y: 8})                  -> 10
+heal()                             !! heal: h missing
+heal(hero, 'x')                    !! heal: amount: an integer expected, not text
+nope(1)                            !! nope: no such function
+heal(hero, 1, 2, 3)                !! heal takes 3 arguments
+heal(hero, amount: 1, amount: 2)   !! heal: amount given twice
+hero.fly()                         !! hero.fly: no function fly for a Hero

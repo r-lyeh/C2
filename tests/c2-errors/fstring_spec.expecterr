@@ -1,0 +1,1 @@
+:2: error: f-string: {n:>5}: the spec is printf's: flags, width, precision, then a conversion

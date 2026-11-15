@@ -1,0 +1,1 @@
+error: a struct Name as a map or set key needs Name_hash(Name *)

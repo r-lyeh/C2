@@ -1,0 +1,6 @@
+// x.f() is a method call: f(x).  Any value can make one, literals included: 21.twice() is twice(21).
+int twice(int x) { return 2 * x; }
+size_t chars(const char *s) { return strlen(s); }
+int main() {
+    printf("%d %zu %d\n", 21.twice(), "hello".chars(), 3.twice().twice());   // 42 5 12
+}

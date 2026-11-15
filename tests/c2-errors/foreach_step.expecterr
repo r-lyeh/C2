@@ -1,0 +1,1 @@
+:2: error: for (... : 0..10..-1): the step -1 goes the other way: an ascending range takes a positive step

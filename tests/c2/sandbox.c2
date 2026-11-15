@@ -1,0 +1,28 @@
+// flags: -sandbox
+// C2_sandbox (c2 -sandbox): deleting, renaming or writing files, starting programs and loading libraries
+// fail (errno EPERM); reading still works; the runtime's saves fail cleanly
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#import "runtime"
+#import "runtime/serial"
+int unlink(const char *path);
+void *dlopen(const char *path, int flags);
+struct P { int hp; };
+int main() {
+    FILE *f = fopen("sandbox_test.txt", "w");
+    printf("fopen w: %s, EPERM %d\n", f ? "opened" : "refused", errno == EPERM);
+    f = fopen("sandbox_test.txt", "a+");
+    printf("fopen a+: %s\n", f ? "opened" : "refused");
+    errno = 0;
+    printf("unlink: %d, EPERM %d\n", unlink("sandbox.c2"), errno == EPERM);
+    printf("remove: %d, rename: %d\n", remove("sandbox.c2"), rename("sandbox.c2", "x.c2"));
+    printf("system: %d\n", system("echo should not run"));
+    printf("dlopen: %s\n", dlopen("libc.so.6", 2) ? "loaded" : "refused");
+    FILE *r = fopen("sandbox.c2", "r");             // reading: fine
+    char line[20] = "";
+    if (r) { fgets(line, sizeof line, r); fclose(r); }
+    printf("read: %s", line);
+    P p = {5};
+    printf("save: %d\n", p.save("sandbox_save.json5"));
+}

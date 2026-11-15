@@ -1,0 +1,13 @@
+// flags: -sandbox
+// C2_sandbox: exit() doesn't end the host: the script leaves every function (their defers run), past
+// any try, and c2 returns exit's code
+#import "runtime"
+int depth3(int x) { defer puts("defer 3"); if (x) exit(7); puts("not reached 3"); return 1; }
+int depth2(int x) { defer puts("defer 2"); int r = depth3(x); puts("not reached 2"); return r; }
+void tryme(void *a) { depth2(1); puts("not reached in try"); }
+int main() {
+    defer puts("defer main");
+    int code = try(tryme, NULL);
+    printf("not reached main %d\n", code);
+    return 0;
+}

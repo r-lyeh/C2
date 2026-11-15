@@ -1,0 +1,76 @@
+#import "runtime"
+
+struct Cell { int x, y; };
+typedef map(int, int) IntMap;
+
+int sum_values(IntMap m) {
+    int s = 0;
+    map_foreach(m, e) s += e.value;
+    return s;
+}
+
+int main() {
+    // text keys: copied by the map
+    map(const char *, int) ages;
+    printf("%zu %d\n", map_count(ages), map_get(ages, "nobody") == NULL);
+    char name[16];
+    strcpy(name, "ana");
+    printf("%d ", map_set(ages, name, 31));
+    strcpy(name, "bo");                                    // the map kept its own "ana"
+    printf("%d ", map_set(ages, name, 7));
+    printf("%d\n", map_set(ages, "ana", 32));              // 0: replaced
+    map_at(ages, "cy") += 5;                               // added, zeroed, then += 5
+    map_at(ages, "cy") += 1;
+    printf("%d %d %d %zu\n", *map_get(ages, "ana"), *map_get(ages, "bo"), *map_get(ages, "cy"), map_count(ages));
+    map_foreach(ages, e) printf("[%s=%d]", e.key, e.value);
+    puts("");
+    printf("%d %d %d\n", map_del(ages, "ana"), map_del(ages, "ana"), map_has(ages, "ana"));
+    map_foreach(ages, e) printf("[%s=%d]", e.key, e.value);   // "cy" moved into the hole
+    puts("");
+    map_free(ages);
+    printf("%zu %d\n", map_count(ages), ages == NULL);
+
+    // many int keys, deletions mixed in: checks the index against a plain array
+    IntMap sq;
+    int ref[5000] = {0};
+    for (int i = 0; i < 5000; i++) { map_set(sq, i * 7919 % 5000, i); ref[i * 7919 % 5000] = i; }
+    for (int i = 0; i < 5000; i += 3) map_del(sq, i);
+    int bad = 0;
+    for (int i = 0; i < 5000; i++) {
+        int *v = map_get(sq, i);
+        if (i % 3 == 0 ? v != NULL : (!v || *v != ref[i])) bad++;
+    }
+    for (int i = 0; i < 5000; i += 3) map_set(sq, i, -i);   // reinsert after deletions
+    for (int i = 0; i < 5000; i += 3) if (*map_get(sq, i) != -i) bad++;
+    long long total = 0;
+    for (int i = 0; i < 5000; i++) total += ref[i];
+    long long del = 0;
+    for (int i = 0; i < 5000; i += 3) del += ref[i] + i;           // ref[i] removed, -i added back
+    printf("%zu bad=%d %d\n", map_count(sq), bad, sum_values(sq) == total - del);
+    map_clear(sq);
+    printf("%zu %d\n", map_count(sq), map_has(sq, 1));
+    map_free(sq);
+
+    // struct keys and struct values
+    map(Cell, const char *) grid;
+    map_set(grid, ((Cell){1, 2}), "tree");
+    map_set(grid, ((Cell){.y = 5}), "rock");
+    printf("%s %s %d\n", *map_get(grid, (Cell){1, 2}), *map_get(grid, (Cell){0, 5}), map_has(grid, (Cell){2, 1}));
+    map_free(grid);
+
+    // sets
+    set(const char *) words;
+    const char *text[] = {"the", "cat", "and", "the", "hat", "and", "the", "end"};
+    int fresh = 0;
+    for (int i = 0; i < countof(text); i++) fresh += set_add(words, text[i]);
+    printf("%d %zu %d %d\n", fresh, set_count(words), set_has(words, "cat"), set_has(words, "dog"));
+    set_del(words, "cat");
+    set_foreach(words, w) printf("%s ", w.key);
+    puts("");
+    set_free(words);
+    set(int) seen;
+    for (int i = 0; i < 100; i++) set_add(seen, i % 10);
+    printf("%zu\n", set_count(seen));
+    set_free(seen);
+    return 0;
+}

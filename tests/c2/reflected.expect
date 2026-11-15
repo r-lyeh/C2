@@ -1,0 +1,16 @@
+player.hp: 75 (int) clamped
+player.pos.x: 3 (float)
+/player/pos/y: 4 (float)
+player.bag[1]: 20 (int)
+player.bag[2]: ? (-)
+player.score[Bo]: 5 (int)
+player.score.Bo: 5 (int)
+player.lvl: 9 (unsigned int)
+player.target.hp: 33 (int) clamped
+frame: 3 (int)
+secret: ? (-)
+player.nope: ? (-)
+9
+global player: Player
+global other: Player
+global frame: int

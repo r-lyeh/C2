@@ -1,0 +1,21 @@
+// c2-abi: compiled ahead of time (c2 -C), then linked with C² as a library (aot_lib.c), which defines
+// c2_rt(): the C library, f-strings, try/throw and coroutines must work as in the JIT.  aot_other.c2,
+// compiled with -prefix other_, is linked in too: its describe() is other_describe here.
+#import "runtime"
+const char *other_describe(int n);
+void other_init(void);                  // from aot_other.c2 (only when built ahead of time)
+void walk(void *arg) { for (int step = 1; step <= 2; step++) { printf("step %d\n", step); co_yield(); } }
+void risky(void *x) { if (*(int *)x > 2) throw(7); }
+int main() {
+    string s = f"aot {21 * 2}";
+    printf("%s\n", s.data());
+    int v = 5;
+    printf("try %d\n", try(risky, &v));
+    co *c = co_create(walk);
+    while (c.resume()) puts("frame");
+    c.free();
+    s.free();
+    other_init();
+    puts(other_describe(1));
+    puts(other_describe(2));
+}

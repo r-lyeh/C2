@@ -1,0 +1,12 @@
+// R1: an array parameter from a plain .h keeps its C meaning (a pointer) in .c2 files
+#include "inc/mat.h"
+void mat_print(const float *m) { printf("%g %g\n", m[0], m[15]); }
+int main() {
+    float *p = calloc(16, sizeof *p);
+    p[15] = 2;
+    mat_print(p);
+    float a[16] = {1};
+    mat_print(a);
+    free(p);
+    return 0;
+}

@@ -1,0 +1,4 @@
+struct V { float x; };
+[[operator*]] V v_mulf(V a, float k) { return (V){a.x * k}; }
+[[operator*]] V v_muld(V a, double k) { return (V){(float)(a.x * k)}; }
+int main() { V a = {1}; V b = a * 2; return (int)b.x; }

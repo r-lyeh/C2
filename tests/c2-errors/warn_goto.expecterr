@@ -1,0 +1,1 @@
+:5: warning: the goto at line 2 jumps past the declaration of 'x', which then isn't zeroed

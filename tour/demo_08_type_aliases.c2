@@ -1,0 +1,5 @@
+// Short names for the sized types: i8..i64, u8..u64, f32, f64 (also int8..uint64, flt32, flt64).
+int main() {
+    int8 a = -1; u16 b = 65535; int64 c = 1LL << 40; f32 d = 0.5f;
+    printf("%d %u %lld %g\n", a, b, c, d);
+}

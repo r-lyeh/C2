@@ -1,0 +1,642 @@
+// runtime/doc.c2: JSON5 and XML documents, parsed into one tree of nodes and read by path.
+//
+//   doc d = doc.open("config.json5");              // JSON5, or XML for a .xml path; doc.parse(text) sniffs
+//   if (d.error[0]) puts(d.error);                  // "config.json5:3: ':' expected after 'hp'"
+//   int w = d.integer("/window/width", 1280);       // the default when it's missing; d.number() for reals
+//   for (int i = 0; i < d.count("/levels"); i++) puts(d.text(f"/levels[{i}]/name".data()));
+//   d.free();                                       // (a [[destructor]]: temporaries go by themselves)
+//
+// A node has a kind (DOC_NULL, DOC_BOOL, DOC_INT, DOC_REAL, DOC_TEXT, DOC_LIST, DOC_OBJECT) and a name
+// (its key in an object; NULL in a list).  An XML element is a DOC_OBJECT named after its tag, holding
+// its attributes as text nodes (attribute set; a path finds them as "@name"), its text as "$" nodes
+// and its child elements.
+//
+// Paths: "/a/b", "a.b" or "a[b]" walk keys; "[2]" is the third item of a list or object.  "name[2]"
+// is the third child called name when there are several (XML's repeated elements), or else item 2
+// of that child.  XML: "/person/address/@type", "/person/firstName/$" (or just "/person/firstName").
+//
+// The parsers come from Kit (r-lyeh's kit.data): JSON5 by Dominik Madarasz and r-lyeh, XML by Tor
+// Andersson, both public domain; rewritten in C² here, returning errors instead of stopping the
+// program, decoding escapes, reading 1e5 as a float, and limiting nesting.
+// A module of its own: #import "runtime/doc" (or "runtime/serial"; not part of #import "runtime").
+#import "string"
+#include <stdarg.h>
+#include <errno.h>
+
+[[export]] enum { DOC_NULL, DOC_BOOL, DOC_INT, DOC_REAL, DOC_TEXT, DOC_LIST, DOC_OBJECT };
+
+[[export]] struct docnode {
+    const char *name;        // the key, the tag, "@attribute", "$" (XML text); NULL for a list item
+    int kind, count, cap;    // count: items of a list or object
+    int line;                // where it starts in the source
+    bool attribute;          // an XML attribute (found as "@name")
+    long long i;             // DOC_BOOL, DOC_INT
+    double f;                // DOC_REAL
+    const char *s;           // DOC_TEXT
+    docnode *items;          // DOC_LIST, DOC_OBJECT
+};
+
+[[export]] struct doc {
+    docnode root;            // a JSON5 document's value, or an XML document's root element
+    char *source;            // the source, decoded in place (names and texts point into it)
+    char error[256];         // "" if it parsed
+};
+
+static void node_free(docnode *n) {
+    for (int i = 0; i < n.count; i++) node_free(&n.items[i]);
+    free(n.items);
+    n.items = NULL;
+    n.count = n.cap = 0;
+}
+
+// frees a document's nodes and text
+[[export, destructor]] void doc_free(doc *d) {
+    node_free(&d.root);
+    free(d.source);
+    d.source = NULL;
+}
+
+static docnode *add_child(docnode *n, const char *name, int kind, int line) {
+    if (n.count == n.cap) {
+        int cap = n.cap ? n.cap * 2 : 4;
+        docnode *items = realloc(n.items, (size_t)cap * sizeof(docnode));
+        if (!items) { fprintf(stderr, "doc: out of memory\n"); abort(); }
+        n.items = items;
+        n.cap = cap;
+    }
+    docnode *c = &n.items[n.count++];
+    memset(c, 0, sizeof *c);
+    c.name = name;
+    c.kind = kind;
+    c.line = line;
+    return c;
+}
+
+// ---------------------------------------------------------------------------- paths
+
+static bool is_digit(char c) { return c >= '0' && c <= '9'; }
+static bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v'; }
+
+static bool named(const docnode *c, const char *name) {      // "@x" finds attribute x; other names, the rest
+    if (!c.name) return false;
+    if (name[0] == '@') return c.attribute && !strcmp(c.name, name + 1);
+    return !c.attribute && !strcmp(c.name, name);
+}
+static int same_name(const docnode *n, const char *name) {   // how many children are called name
+    int k = 0;
+    for (int i = 0; i < n.count; i++) if (named(&n.items[i], name)) k++;
+    return k;
+}
+static docnode *child(docnode *n, const char *name, int nth) {   // the nth child called name
+    for (int i = 0; n && i < n.count; i++)
+        if (named(&n.items[i], name) && nth-- == 0) return &n.items[i];
+    return NULL;
+}
+
+// the node at path under n, or NULL.  *siblings: how many nodes the path's last name matched
+static docnode *walk(docnode *n, const char *path, int *siblings) {
+    char key[128];
+    if (siblings) *siblings = n ? 1 : 0;
+    const char *p = path;
+    while (n && *p) {
+        if (*p == '/' || *p == '.') { p++; continue; }
+        int k = 0;
+        bool bracket = *p == '[';
+        if (bracket) p++;
+        while (*p && (bracket ? *p != ']' : !strchr("/.[", *p)) && k < (int)sizeof key - 1) key[k++] = *p++;
+        key[k] = '\0';
+        if (bracket) { if (*p != ']') return NULL; p++; }
+        bool index = bracket && k && strspn(key, "0123456789") == (size_t)k;
+        if (index) {
+            int i = atoi(key);
+            n = i < n.count ? &n.items[i] : NULL;
+            continue;
+        }
+        int many = same_name(n, key);
+        if (*p == '[' && many > 1 && is_digit(p[1])) {               // name[2]: the third of several
+            int nth = atoi(p + 1);
+            while (*p && *p != ']') p++;
+            if (*p) p++;
+            n = child(n, key, nth);
+            if (siblings) *siblings = 1;
+            continue;
+        }
+        n = child(n, key, 0);
+        if (siblings) *siblings = many;
+    }
+    return n;
+}
+
+static const docnode *value_of(const docnode *n) {              // an XML element: its "$" text node
+    if (n && n.kind == DOC_OBJECT && n.name) {
+        for (int i = 0; i < n.count; i++)
+            if (n.items[i].name && !strcmp(n.items[i].name, "$")) return &n.items[i];
+    }
+    return n;
+}
+
+// its first child called name ("@name": attribute name), or NULL; no path
+[[export]] docnode *docnode_child(docnode *n, const char *name) { return child(n, name, 0); }
+
+// the node at path (from this node), or NULL
+[[export]] docnode *docnode_find(docnode *n, const char *path) { return walk(n, path, NULL); }
+[[export]] bool docnode_has(docnode *n, const char *path) { return walk(n, path, NULL) != NULL; }
+
+// how many items the node at path has (a list's, an object's), or how many siblings share its name
+// (XML's repeated elements); 0 if it's missing
+[[export]] int docnode_count(docnode *n, const char *path) {
+    int many = 0;
+    docnode *r = walk(n, path, &many);
+    if (!r) return 0;
+    if (many > 1) return many;
+    return r.kind == DOC_LIST || r.kind == DOC_OBJECT ? r.count : 1;
+}
+
+[[export]] long long docnode_integer(docnode *n, const char *path, long long missing = 0) {
+    const docnode *r = value_of(walk(n, path, NULL));
+    if (!r) return missing;
+    switch (r.kind) {
+    case DOC_BOOL: case DOC_INT: return r.i;
+    case DOC_REAL: return (long long)r.f;
+    case DOC_TEXT: { char *e; long long v = strtoll(r.s, &e, 0); return e != r.s ? v : missing; }
+    }
+    return missing;
+}
+[[export]] double docnode_number(docnode *n, const char *path, double missing = 0) {
+    const docnode *r = value_of(walk(n, path, NULL));
+    if (!r) return missing;
+    switch (r.kind) {
+    case DOC_BOOL: case DOC_INT: return (double)r.i;
+    case DOC_REAL: return r.f;
+    case DOC_TEXT: { char *e; double v = strtod(r.s, &e); return e != r.s ? v : missing; }
+    }
+    return missing;
+}
+[[export]] const char *docnode_text(docnode *n, const char *path, const char *missing = "") {
+    const docnode *r = value_of(walk(n, path, NULL));
+    return r && r.kind == DOC_TEXT ? r.s : missing;
+}
+[[export]] bool docnode_boolean(docnode *n, const char *path, bool missing = false) {
+    const docnode *r = value_of(walk(n, path, NULL));
+    if (!r) return missing;
+    if (r.kind == DOC_BOOL || r.kind == DOC_INT) return r.i != 0;
+    if (r.kind == DOC_TEXT) return !strcmp(r.s, "true") || !strcmp(r.s, "1") || !strcmp(r.s, "yes") || !strcmp(r.s, "on");
+    return missing;
+}
+
+// the same, from a document's root
+[[export]] docnode *doc_node(doc *d, const char *path) { return walk(&d.root, path, NULL); }
+[[export]] bool doc_has(doc *d, const char *path) { return docnode_has(&d.root, path); }
+[[export]] int doc_count(doc *d, const char *path) { return docnode_count(&d.root, path); }
+[[export]] long long doc_integer(doc *d, const char *path, long long missing = 0) { return docnode_integer(&d.root, path, missing); }
+[[export]] double doc_number(doc *d, const char *path, double missing = 0) { return docnode_number(&d.root, path, missing); }
+[[export]] const char *doc_text(doc *d, const char *path, const char *missing = "") { return docnode_text(&d.root, path, missing); }
+[[export]] bool doc_boolean(doc *d, const char *path, bool missing = false) { return docnode_boolean(&d.root, path, missing); }
+
+// ---------------------------------------------------------------------------- files
+
+// a file's bytes, terminated, or NULL (errno set)
+[[export]] char *doc_read_file(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    defer fclose(f);
+    if (fseek(f, 0, SEEK_END) != 0) return NULL;
+    long n = ftell(f);
+    if (n < 0 || fseek(f, 0, SEEK_SET) != 0) return NULL;
+    char *b = malloc((size_t)n + 1);
+    if (!b) return NULL;
+    if (fread(b, 1, (size_t)n, f) != (size_t)n) { free(b); return NULL; }
+    b[n] = '\0';
+    return b;
+}
+
+static doc failed(const char *path, const char *what) {
+    doc d = {};
+    snprintf(d.error, sizeof d.error, "%s: %s", path, what);
+    return d;
+}
+
+// ---------------------------------------------------------------------------- JSON5
+
+struct reader { char *p; int line; char *error; int depth; };   // (error: the doc's buffer)
+
+static void fail(reader *r, const char *fmt, ...) {
+    if (r.error[0]) return;                                    // the first error is the one that counts
+    char msg[200];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    snprintf(r.error, 256, "line %d: %s", r.line, msg);
+}
+
+static void skip(reader *r) {                                  // white space and comments
+    for (;;) {
+        char *p = r.p;
+        if (*p == '\n') { r.line++; r.p++; }
+        else if (is_space(*p)) r.p++;
+        else if (p[0] == '/' && p[1] == '/') { while (*r.p && *r.p != '\n') r.p++; }
+        else if (p[0] == '/' && p[1] == '*') {
+            r.p += 2;
+            while (*r.p && !(r.p[0] == '*' && r.p[1] == '/')) { if (*r.p == '\n') r.line++; r.p++; }
+            if (!*r.p) { fail(r, "unterminated /* comment"); return; }
+            r.p += 2;
+        } else return;
+    }
+}
+
+static int utf8(char *s, unsigned c) {                         // c's UTF-8 bytes; their count
+    if (c < 0x80) { s[0] = (char)c; return 1; }
+    if (c < 0x800) { s[0] = (char)(0xC0 | c >> 6); s[1] = (char)(0x80 | (c & 0x3F)); return 2; }
+    if (c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) c = 0xFFFD;
+    if (c < 0x10000) { s[0] = (char)(0xE0 | c >> 12); s[1] = (char)(0x80 | (c >> 6 & 0x3F)); s[2] = (char)(0x80 | (c & 0x3F)); return 3; }
+    s[0] = (char)(0xF0 | c >> 18); s[1] = (char)(0x80 | (c >> 12 & 0x3F)); s[2] = (char)(0x80 | (c >> 6 & 0x3F));
+    s[3] = (char)(0x80 | (c & 0x3F));
+    return 4;
+}
+static int hex(const char *p, int n) {                         // n hex digits, or -1
+    int v = 0;
+    for (int i = 0; i < n; i++) {
+        char c = p[i];
+        int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+        if (d < 0) return -1;
+        v = v * 16 + d;
+    }
+    return v;
+}
+
+static char *quoted(reader *r) {                               // "..." or '...', decoded in place
+    char q = *r.p++, *out = r.p, *s = r.p;
+    for (;;) {
+        char c = *r.p;
+        if (!c) { fail(r, "unterminated string"); return NULL; }
+        if (c == q) { r.p++; break; }
+        if (c == '\n') { fail(r, "a line break in a string (write \\n)"); return NULL; }
+        if (c != '\\') { *s++ = c; r.p++; continue; }
+        c = r.p[1];
+        r.p += 2;
+        switch (c) {
+        case 'n': *s++ = '\n'; break;
+        case 't': *s++ = '\t'; break;
+        case 'r': *s++ = '\r'; break;
+        case 'b': *s++ = '\b'; break;
+        case 'f': *s++ = '\f'; break;
+        case 'v': *s++ = '\v'; break;
+        case '0': *s++ = '\0'; break;
+        case '\r': if (*r.p == '\n') r.p++; r.line++; break;      // a line continuation
+        case '\n': r.line++; break;
+        case 'x': { int v = hex(r.p, 2); if (v < 0) { fail(r, "bad \\x escape"); return NULL; } s += utf8(s, (unsigned)v); r.p += 2; break; }
+        case 'u': {
+            int v = hex(r.p, 4);
+            if (v < 0) { fail(r, "bad \\u escape"); return NULL; }
+            r.p += 4;
+            if (v >= 0xD800 && v <= 0xDBFF && r.p[0] == '\\' && r.p[1] == 'u') {   // a surrogate pair
+                int lo = hex(r.p + 2, 4);
+                if (lo >= 0xDC00 && lo <= 0xDFFF) { v = 0x10000 + ((v - 0xD800) << 10) + (lo - 0xDC00); r.p += 6; }
+            }
+            s += utf8(s, (unsigned)v);
+            break;
+        }
+        case '\0': fail(r, "unterminated string"); return NULL;
+        default: *s++ = c;                                     // \" \' \\ \/ and the rest: themselves
+        }
+    }
+    *s = '\0';
+    return out;
+}
+
+static bool ident_char(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || is_digit(c) || c == '_' || c == '$' || (unsigned char)c >= 0x80; }
+
+static void value(reader *r, docnode *n);
+
+static void members(reader *r, docnode *n, char close) {        // key: value, ... up to close (or the end)
+    for (;;) {
+        skip(r);
+        while (*r.p == ',') { r.p++; skip(r); }
+        if (r.error[0]) return;
+        if (*r.p == close && close) { r.p++; return; }
+        if (!*r.p) { if (close) fail(r, "'%c' expected at the end", close); return; }
+        int line = r.line;
+        char *key;
+        if (*r.p == '"' || *r.p == '\'') {                      // "key": or 'key':
+            key = quoted(r);
+            if (!key) return;
+            skip(r);
+            if (*r.p != ':' && *r.p != '=') { fail(r, "':' expected after '%s'", key); return; }
+            r.p++;
+        } else if (ident_char(*r.p) || *r.p == '.') {           // key:
+            key = r.p;
+            while (ident_char(*r.p) || *r.p == '.' || *r.p == '-') r.p++;
+            char *end = r.p;
+            skip(r);
+            if (*r.p != ':' && *r.p != '=') { fail(r, "':' expected after '%.*s'", (int)(end - key), key); return; }
+            r.p++;                                             // (past ':' before ending the key: it may sit right there)
+            *end = '\0';
+        } else { fail(r, "a key expected, not '%c'", *r.p); return; }
+        docnode *c = add_child(n, key, DOC_NULL, line);
+        value(r, c);
+        if (r.error[0]) return;
+        skip(r);
+        if (*r.p != ',' && *r.p != close && *r.p && !ident_char(*r.p) && *r.p != '"' && *r.p != '\'')
+            { fail(r, "',' or '%c' expected after the value of '%s'", close ? close : ',', key); return; }
+    }
+}
+
+static void number(reader *r, docnode *n) {
+    char *start = r.p, *end;
+    const char *s = r.p;
+    if (*s == '+' || *s == '-') s++;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        unsigned long long v = strtoull(s + 2, &end, 16);
+        if (end == s + 2) { fail(r, "bad hex number"); return; }
+        n.kind = DOC_INT;
+        n.i = *start == '-' ? -(long long)v : (long long)v;
+        r.p = end;
+        return;
+    }
+    double d = strtod(start, &end);
+    if (end == start) { fail(r, "a value expected, not '%c'", *start); return; }
+    bool real = false;
+    for (char *q = start; q < end; q++) if (*q == '.' || *q == 'e' || *q == 'E') real = true;
+    if (!real && d >= -9.2e18 && d <= 9.2e18) { n.kind = DOC_INT; n.i = strtoll(start, NULL, 10); }
+    else { n.kind = DOC_REAL; n.f = d; }
+    r.p = end;
+}
+
+static bool word(reader *r, const char *w) {                   // a literal, whole
+    size_t k = strlen(w);
+    if (strncmp(r.p, w, k) || ident_char(r.p[k])) return false;
+    r.p += k;
+    return true;
+}
+
+static void value(reader *r, docnode *n) {
+    skip(r);
+    if (r.error[0]) return;
+    n.line = r.line;
+    if (++r.depth > 200) { fail(r, "nested too deep"); return; }
+    defer r.depth--;
+    char c = *r.p;
+    if (c == '"' || c == '\'') { n.kind = DOC_TEXT; n.s = quoted(r); return; }
+    if (c == '{') { r.p++; n.kind = DOC_OBJECT; members(r, n, '}'); return; }
+    if (c == '[') {
+        r.p++;
+        n.kind = DOC_LIST;
+        for (;;) {
+            skip(r);
+            while (*r.p == ',') { r.p++; skip(r); }
+            if (r.error[0]) return;
+            if (*r.p == ']') { r.p++; return; }
+            if (!*r.p) { fail(r, "']' expected at the end"); return; }
+            value(r, add_child(n, NULL, DOC_NULL, r.line));
+            if (r.error[0]) return;
+            skip(r);
+            if (!*r.p) { fail(r, "']' expected at the end"); return; }
+            if (*r.p != ',' && *r.p != ']') { fail(r, "',' or ']' expected in a list"); return; }
+        }
+    }
+    if (word(r, "null")) { n.kind = DOC_NULL; return; }
+    if (word(r, "true")) { n.kind = DOC_BOOL; n.i = 1; return; }
+    if (word(r, "false")) { n.kind = DOC_BOOL; n.i = 0; return; }
+    bool neg = c == '-';
+    if (c == '-' || c == '+') r.p++;
+    if (word(r, "Infinity") || word(r, "inf")) { n.kind = DOC_REAL; n.f = neg ? -HUGE_VAL : HUGE_VAL; return; }
+    if (word(r, "NaN") || word(r, "nan")) { n.kind = DOC_REAL; n.f = 0.0 / 0.0; return; }
+    if (c == '-' || c == '+') r.p--;
+    if (is_digit(c) || c == '-' || c == '+' || c == '.') { number(r, n); return; }
+    if (!c) fail(r, "a value expected at the end");
+    else fail(r, "a value expected, not '%c'", c);
+}
+
+static bool bare_pairs(reader *r) {                            // `key: value` at the top level (a config file)?
+    char *p = r.p;
+    if (!(*p == '_' || *p == '$' || (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z'))) return false;
+    while (ident_char(*p) || *p == '.' || *p == '-') p++;
+    while (is_space(*p)) p++;
+    return *p == ':' || *p == '=';
+}
+
+// a JSON5 text as a document: text is copied.  The top level may also be bare `key: value` pairs.
+[[export]] doc json5_parse(const char *text) {
+    doc d = {};
+    d.source = strdup(text ? text : "");
+    reader r = {d.source, 1, d.error, 0};
+    skip(&r);
+    if (!bare_pairs(&r)) value(&r, &d.root);
+    else { d.root.kind = DOC_OBJECT; members(&r, &d.root, 0); }      // bare pairs, as a config file
+    skip(&r);
+    if (!d.error[0] && *r.p) fail(&r, "unexpected '%c' after the value", *r.p);
+    if (d.error[0]) node_free(&d.root);
+    return d;
+}
+
+// a JSON5 file as a document; d.error says "path: ..." if it couldn't be read or parsed
+[[export]] doc json5_open(const char *path) {
+    char *text = doc_read_file(path);
+    if (!text) return failed(path, strerror(errno));
+    doc d = {};
+    d.source = text;
+    reader r = {d.source, 1, d.error, 0};
+    skip(&r);
+    if (!bare_pairs(&r)) value(&r, &d.root);
+    else { d.root.kind = DOC_OBJECT; members(&r, &d.root, 0); }
+    skip(&r);
+    if (!d.error[0] && *r.p) fail(&r, "unexpected '%c' after the value", *r.p);
+    if (d.error[0]) {
+        char e[256];
+        snprintf(e, sizeof e, "%s:%s", path, d.error + 5);   // "path:12: ..." (from "line 12: ...")
+        strcpy(d.error, e);
+        node_free(&d.root);
+    }
+    return d;
+}
+
+// ---------------------------------------------------------------------------- XML
+
+static bool name_char(char c) { return c == '.' || c == '-' || c == '_' || c == ':' || is_digit(c) ||
+                                       (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (unsigned char)c >= 0x80; }
+
+static char *entities(reader *r, char *a, char *b) {           // a..b decoded in place, terminated
+    char *s = a;
+    while (a < b) {
+        if (*a == '\n') r.line++;
+        if (*a != '&') { *s++ = *a++; continue; }
+        unsigned c = 0;
+        char *e = a + 1;
+        if (*e == '#') {
+            char *end;
+            c = (unsigned)(e[1] == 'x' ? strtol(e + 2, &end, 16) : strtol(e + 1, &end, 10));
+            e = end;
+        } else if (!strncmp(e, "lt;", 3)) { c = '<'; e += 2; }
+        else if (!strncmp(e, "gt;", 3)) { c = '>'; e += 2; }
+        else if (!strncmp(e, "amp;", 4)) { c = '&'; e += 3; }
+        else if (!strncmp(e, "apos;", 5)) { c = '\''; e += 4; }
+        else if (!strncmp(e, "quot;", 5)) { c = '"'; e += 4; }
+        if (*e != ';' || e > b) { *s++ = *a++; continue; }    // not an entity: the '&' as it is
+        s += utf8(s, c);                                       // (never longer than the entity)
+        a = e + 1;
+    }
+    *s = '\0';
+    return s;
+}
+
+static void xml_doc(reader *r, docnode *root) {
+    docnode *stack[200];
+    int top = -1;
+    char *p = r.p;
+    for (;;) {
+        char *mark = p;                                        // text, up to the next '<'
+        while (*p && *p != '<') p++;
+        if (p > mark && top >= 0) {
+            bool white = true;
+            for (char *q = mark; q < p; q++) if (!is_space(*q)) white = false;
+            if (!white) {                                      // (decoding ends it before the '<', or at the '<',
+                docnode *t = add_child(stack[top], "$", DOC_TEXT, r.line);   //  which is ended below)
+                char saved = *p;
+                entities(r, mark, p);
+                *p = saved;
+                t.s = mark;
+            } else for (char *q = mark; q < p; q++) if (*q == '\n') r.line++;
+        }
+        if (!*p) break;
+        // the text node's terminator: the '<' becomes '\0' once the tag is read (it isn't needed after)
+        char *lt = p++;
+        if (*p == '!' && p[1] == '-' && p[2] == '-') {          // <!-- comment -->
+            char *e = strstr(p, "-->");
+            if (!e) { r.p = p; fail(r, "unterminated <!-- comment"); return; }
+            for (char *q = p; q < e; q++) if (*q == '\n') r.line++;
+            *lt = '\0';
+            p = e + 3;
+            continue;
+        }
+        if (!strncmp(p, "![CDATA[", 8)) {                       // <![CDATA[ text ]]>
+            char *e = strstr(p, "]]>");
+            if (!e) { fail(r, "unterminated CDATA section"); return; }
+            if (top < 0) { fail(r, "text outside the root element"); return; }
+            docnode *t = add_child(stack[top], "$", DOC_TEXT, r.line);
+            for (char *q = p; q < e; q++) if (*q == '\n') r.line++;
+            *lt = '\0';
+            *e = '\0';
+            t.s = p + 8;
+            p = e + 3;
+            continue;
+        }
+        if (*p == '?' || *p == '!') {                           // <?xml ...?>, <!DOCTYPE ...>
+            while (*p && *p != '>') { if (*p == '\n') r.line++; p++; }
+            if (!*p) { fail(r, "unterminated <%c", lt[1]); return; }
+            *lt = '\0';
+            p++;
+            continue;
+        }
+        *lt = '\0';
+        if (*p == '/') {                                       // </tag>
+            p++;
+            char *name = p;
+            while (name_char(*p)) p++;
+            char *end = p;
+            while (is_space(*p)) { if (*p == '\n') r.line++; p++; }
+            if (*p != '>') { fail(r, "'>' expected in </%.*s", (int)(end - name), name); return; }
+            *end = '\0';
+            char *colon = strrchr(name, ':');
+            if (colon) name = colon + 1;
+            if (top < 0) { fail(r, "</%s> without its opening tag", name); return; }
+            if (strcmp(name, stack[top].name)) { fail(r, "</%s> closes <%s>", name, stack[top].name); return; }
+            top--;
+            p++;
+            continue;
+        }
+        if (!name_char(*p)) { fail(r, "a tag name expected after '<'"); return; }
+        char *name = p;                                        // <tag attr="value" ...> or <tag/>
+        while (name_char(*p)) p++;
+        char *name_end = p;
+        int line = r.line;
+        docnode *e;
+        if (top < 0) {
+            if (root.kind == DOC_OBJECT) { fail(r, "a second root element <%.*s>", (int)(name_end - name), name); return; }
+            e = root;
+            e.kind = DOC_OBJECT;
+            e.line = line;
+        } else e = add_child(stack[top], NULL, DOC_OBJECT, line);
+        bool closed = false;
+        for (;;) {
+            while (is_space(*p)) { if (*p == '\n') r.line++; p++; }
+            if (*p == '>') { p++; break; }
+            if (p[0] == '/' && p[1] == '>') { p += 2; closed = true; break; }
+            if (!name_char(*p)) { *name_end = '\0'; fail(r, "an attribute or '>' expected in <%s>", name); return; }
+            if (!is_space(p[-1])) { *name_end = '\0'; fail(r, "a space expected before an attribute of <%s>", name); return; }
+            char *an = p;
+            while (name_char(*p)) p++;
+            char *an_end = p;
+            while (is_space(*p)) p++;
+            if (*p != '=') { *name_end = '\0'; fail(r, "'=' expected after an attribute of <%s>", name); return; }
+            p++;
+            while (is_space(*p)) p++;
+            char q = *p;
+            if (q != '"' && q != '\'') { *name_end = '\0'; fail(r, "a quoted value expected for an attribute of <%s>", name); return; }
+            char *v = ++p;
+            while (*p && *p != q) p++;
+            if (!*p) { fail(r, "unterminated attribute value"); return; }
+            *an_end = '\0';
+            docnode *a = add_child(e, an, DOC_TEXT, r.line);
+            a.attribute = true;
+            entities(r, v, p);
+            a.s = v;
+            p++;
+        }
+        *name_end = '\0';
+        char *colon = strrchr(name, ':');                      // ns:tag: the tag
+        e.name = colon ? colon + 1 : name;
+        if (!closed) {
+            if (top >= 199) { fail(r, "nested too deep"); return; }
+            stack[++top] = e;
+        } else if (top < 0) break;                             // <root/>: done
+        if (top < 0) break;
+    }
+    if (top >= 0) fail(r, "<%s> isn't closed", stack[top].name);
+    else if (root.kind != DOC_OBJECT) fail(r, "no root element");
+    while (*p && !r.error[0]) {                                // after the root: comments and space only
+        if (is_space(*p)) { p++; continue; }
+        if (!strncmp(p, "<!--", 4)) { char *e = strstr(p, "-->"); if (!e) break; p = e + 3; continue; }
+        if (!strncmp(p, "<?", 2)) { char *e = strstr(p, "?>"); if (!e) break; p = e + 2; continue; }
+        fail(r, "something after the root element");
+    }
+}
+
+// an XML text as a document (its root element is the root node); text is copied
+[[export]] doc xml_parse(const char *text) {
+    doc d = {};
+    d.source = strdup(text ? text : "");
+    reader r = {d.source, 1, d.error, 0};
+    xml_doc(&r, &d.root);
+    if (d.error[0]) node_free(&d.root);
+    return d;
+}
+
+// an XML file as a document; d.error says "path:line: ..." if it couldn't be read or parsed
+[[export]] doc xml_open(const char *path) {
+    char *text = doc_read_file(path);
+    if (!text) return failed(path, strerror(errno));
+    doc d = {};
+    d.source = text;
+    reader r = {d.source, 1, d.error, 0};
+    xml_doc(&r, &d.root);
+    if (d.error[0]) {
+        char e[256];
+        snprintf(e, sizeof e, "%s:%s", path, d.error + 5);
+        strcpy(d.error, e);
+        node_free(&d.root);
+    }
+    return d;
+}
+
+// doc.open(path): JSON5, or XML when the path ends in .xml; doc.parse(text): XML when it starts with '<'
+[[export]] doc doc_open(const char *path) {
+    size_t n = strlen(path);
+    bool xml = n >= 4 && path[n - 4] == '.' && (path[n - 3] | 32) == 'x' && (path[n - 2] | 32) == 'm' && (path[n - 1] | 32) == 'l';
+    return xml ? xml_open(path) : json5_open(path);
+}
+[[export]] doc doc_parse(const char *text) {
+    const char *t = text;
+    while (*t == ' ' || *t == '\t' || *t == '\r' || *t == '\n') t++;
+    return *t == '<' ? xml_parse(text) : json5_parse(text);
+}

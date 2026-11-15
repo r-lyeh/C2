@@ -1,0 +1,1 @@
+int main() { defer puts("x"); goto out; out: return 0; }

@@ -1,0 +1,11 @@
+// The runtime (runtime/) is made of modules.  Its string: 23 bytes inline, longer ones on the heap; += and ==
+// work, and methods chain.
+#import "runtime"
+int main() {
+    string s = "hello"; // equivalent to = string("hello")
+    s += ", world";
+    printf("%s %zu %d %s\n", s.data(), s.len(), s == "hello, world", s.is_long() ? "heap" : "inline");
+    s.append(", now long enough for the heap").appendf(" (%d)", 2026);
+    printf("%s %zu %s\n", s.data(), s.len(), s.is_long() ? "heap" : "inline");
+    s.free();
+}

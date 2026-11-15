@@ -1,0 +1,1 @@
+:2: error: foreach_field(T, X): T is a struct or union, not 'int'

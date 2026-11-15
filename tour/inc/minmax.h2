@@ -1,0 +1,5 @@
+// demo_05_scoped_macros.c2's header: its macros stay inside it, except what it #exports.
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define CLAMP(x, lo, hi) MIN(MAX(x, lo), hi)
+#export CLAMP

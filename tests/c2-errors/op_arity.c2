@@ -1,0 +1,2 @@
+struct V { int x; };
+[[operator+]] V v_add3(V a, V b, V c);

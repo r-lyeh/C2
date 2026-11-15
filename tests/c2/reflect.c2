@@ -1,0 +1,48 @@
+// reflect(T) / reflect(expr): tables built by the compiler; each_member, enum_name, x.print(), f"{struct}",
+// [[skip]] fields, the runtime's containers and string as kinds of their own
+#import "runtime"
+enum Dir : unsigned char { NORTH, EAST, SOUTH, WEST };
+typedef enum { LOW = -1, HIGH = 1 } Level;
+struct Vec { float x, y; };
+struct Player {
+    const char *name;
+    int hp;
+    Vec pos;
+    Dir facing;
+    int flags : 4;
+    [[skip]] int secret;
+    string title;
+    array(int) items;
+    char tag[8];
+    map(int, float) bonus;
+    set(int) seen;
+    bool alive;
+    double speed;
+    Player *next;
+    Level level;
+};
+union Bits { int i; float f; };
+Vec mk(float a) { return Vec(a, a * 2); }
+int main() {
+    const c2type *t = reflect(Player);
+    printf("%s kind %d size %d fields %d free %d copy %d\n", t.name, t.kind, t.size, t.count, t.free != NULL, t.copy != NULL);
+    for each_member(Player, m)
+        printf("  %-7s %-16s +%-2d bits %d flags %d\n", m.name, m.type ? m.type.name : "?", m.offset, m.bits, m.flags);
+    printf("  (the table still has %s, flags %d)\n", t.fields[5].name, t.fields[5].flags);   // [[skip]]
+    printf("%s %s %s\n", enum_name(reflect(enum Dir), EAST), enum_name(reflect(Level), LOW), enum_name(reflect(Level), 5) ? "?" : "none");
+    Player hero = {"Ada", 75, {3, 4.5}, EAST, -3, 42, "the \"Bold\"", NULL, "ab"};
+    array_push(hero.items, 1); array_push(hero.items, 2);
+    map_set(hero.bonus, 7, 1.5f); set_add(hero.seen, 9); set_add(hero.seen, 3);
+    hero.alive = true; hero.speed = 2.25; hero.level = HIGH;
+    hero.print();
+    printf("%s | %s | %s\n", reflect(hero.pos).name, reflect(hero.items).name, reflect(&hero).name);
+    printf("%s\n", f"{hero.pos} faces {hero.facing} ({hero.facing:d})".data());
+    char c = 'x';
+    (mk(2)).print(); (3.5).print(); ("hi").print(); c.print(); true.print();
+    int a[3] = {1, 2, 3};
+    a.print();
+    union Bits b = {.i = 7};
+    b.print();
+    printf("%s %s\n", reflect(map(int, float)).name, reflect(unsigned short).name);
+    hero.title.free(); array_free(hero.items); map_free(hero.bonus); set_free(hero.seen);
+}

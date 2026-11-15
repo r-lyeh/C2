@@ -1,0 +1,8 @@
+// A coroutine pauses at co_yield() and continues there at the next co_resume(): game logic over frames.
+#import "runtime"
+void walk(void *arg) { for (int step = 1; step <= 3; step++) { printf("step %d\n", step); co_yield(); } }
+int main() {
+    co *c = co_create(walk);
+    for (int frame = 1; c.resume(); frame++) printf("frame %d drawn\n", frame);
+    c.free();
+}

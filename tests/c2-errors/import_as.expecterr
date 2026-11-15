@@ -1,0 +1,1 @@
+:1: error: #import "..." as name is now #import name = "..."

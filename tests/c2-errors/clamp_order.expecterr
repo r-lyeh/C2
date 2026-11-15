@@ -1,0 +1,1 @@
+:1: error: [[clamp(10, 1)]]: the minimum is above the maximum

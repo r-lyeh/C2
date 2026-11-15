@@ -1,0 +1,26 @@
+// [[unroll]] / [[unroll(N)]]: full, partial (trip counts that are not multiples), while, do, break, continue, temporaries
+#import "runtime"
+int main() {
+    int s = 0;
+    [[unroll]] for (int i = 0; i < 10; i++) s += i;               // fully: 10 copies
+    printf("%d\n", s);
+    s = 0;
+    [[unroll(4)]] for (int i = 0; i < 10; i++) { if (i == 7) continue; s += i; }   // 10 isn't a multiple of 4
+    printf("%d\n", s);
+    int n = 13, k = 0;
+    [[unroll(3)]] while (n > 0) { n--; k++; if (k == 11) break; }
+    printf("%d %d\n", n, k);
+    k = 0;
+    [[unroll(2)]] do { k += 2; } while (k < 9);
+    printf("%d\n", k);
+    s = 0;
+    [[unroll]] for (int i = 10; i >= 0; i -= 3) s += i;
+    printf("%d\n", s);
+    [[unroll(5)]] for (int i = 0; i < 3; i++) { string t = f"{i}"; printf("%s ", t.data()); }
+    puts("");
+    int hits = 0;                                     // a switch inside the body is fine
+    [[unroll(3)]] for (int i = 0; i < 8; i++) switch (i % 3) { case 0: hits += 10; break; default: hits++; }
+    [[unroll(2)]] for (int i = 0; i < 0; i++) hits = -1;   // no iterations
+    [[unroll]] for (int i = 5; i != 0; i--) hits += 100;   // 5 copies
+    printf("%d\n", hits);
+}

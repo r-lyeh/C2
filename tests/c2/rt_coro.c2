@@ -1,0 +1,53 @@
+// coroutines: yield/resume in order, arguments, nesting, status, freeing a suspended one
+#import "runtime"
+
+struct counter { const char *name; int n, step; };
+
+void count(void *arg) {
+    counter *c = arg;
+    for (int i = 0; i < 3; i++) {
+        c.n += c.step;
+        printf("%s %d\n", c.name, c.n);
+        co_yield();
+    }
+}
+
+void inner(void *arg) { puts("  inner 1"); co_yield(); puts("  inner 2"); }
+void outer(void *arg) {
+    co *in = co_create(inner);
+    puts("outer start");
+    while (in.resume()) { puts("outer between"); co_yield(); }
+    in.free();
+    puts("outer end");
+}
+
+void forever(void *arg) { int *ticks = arg; for (;;) { (*ticks)++; co_yield(); } }
+
+int deep(int n) { volatile char pad[256] = {0}; return n ? deep(n - 1) + pad[0] + 1 : 0; }
+void big(void *arg) { *(int *)arg = deep(400); }        // ~100 KB of stack (more interpreted): fine in 1 MB
+
+int main() {
+    counter a = {"a", 0, 1}, b = {"b", 100, 10};
+    co *ca = co_create(count, &a), *cb = co_create(count, &b);
+    printf("status %d %d\n", ca.status(), co_running() == NULL);
+    while (ca.resume() | cb.resume()) puts("--");       // interleaved
+    printf("done %d %d, %d %d\n", ca.done(), cb.done(), a.n, b.n);
+    ca.free(); cb.free();
+
+    co *o = co_create(outer);
+    while (o.resume()) puts("main between");
+    o.free();
+
+    int ticks = 0;
+    co *f = co_create(forever, &ticks);
+    for (int i = 0; i < 1000; i++) f.resume();
+    printf("ticks %d, suspended %d\n", ticks, f.status() == CO_SUSPENDED);
+    f.free();                                        // dropped while suspended
+
+    int depth = 0;
+    co *g = co_create(big, &depth);
+    g.resume();
+    printf("depth %d %d\n", depth, g.done());
+    g.free();
+    return 0;
+}

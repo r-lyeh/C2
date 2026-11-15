@@ -1,0 +1,5 @@
+bits 3f800000 byte3 3f size 4
+long 42
+double 2.5
+string text
+lo 5678 hi 1234 sizeof Value 16 init 7

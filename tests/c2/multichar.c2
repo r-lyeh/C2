@@ -1,0 +1,7 @@
+/* .c2: multi-character constants up to 8 characters, type long long, first character highest */
+#include <stdio.h>
+int main(void) {
+    long long v = 'ABCDEFGH';
+    printf("%llx %d %d %d\n", v, (int)sizeof 'ABCDE', (int)sizeof 'ABCD', 'ABCDEFGH' > 'ABCD');
+    return 0;
+}

@@ -1,0 +1,1 @@
+:4: error: 'struct V' * 'int' is ambiguous: [[operator*]] v_mulf, v_muld fit equally

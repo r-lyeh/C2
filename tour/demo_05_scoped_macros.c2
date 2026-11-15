@@ -1,0 +1,7 @@
+// Headers can keep their macros: the ones in an included .h2 stay in it, except those it #exports (CLAMP here).
+#include "inc/minmax.h2"
+int main() {
+#ifndef MAX
+    printf("%d, and MAX isn't defined here\n", CLAMP(42, 0, 10));   // 10
+#endif
+}

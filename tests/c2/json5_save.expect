@@ -1,0 +1,50 @@
+{
+  name: "Ada \"the\" Bold\t✓",
+  health: 75,
+  pos: {
+    x: 3.0,
+    y: 4.5,
+  },
+  cls: "MAGE",
+  bag: [
+    {
+      name: "sword",
+      count: 1,
+    },
+    {
+      name: "potion",
+      count: 3,
+    },
+  ],
+  skills: {
+    fire: 3,
+    "two words": 1,
+  },
+  wins: {
+    MAGE: 2,
+    WARRIOR: 0,
+  },
+  xp_by_level: [
+    [1, 10.5],
+    [2, NaN],
+  ],
+  visited: [4, 9],
+  tag: "hero",
+  motto: "onward\n",
+  alive: true,
+  speed: 1.1,
+  gold: -Infinity,
+  level: 17,
+  mood: -2,
+  empty: [],
+  a: 5,
+  b: 6,
+}
+{
+  x: 0.1,
+  y: -2.0,
+}
+42
+saved 1, starts {
+  name: "A, 20 bytes read, tmp left: 0
+unwritable: 0

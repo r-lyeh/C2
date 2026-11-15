@@ -1,0 +1,2 @@
+// a folder module: #import "inc/kit" finds inc/kit/kit.c2 (before inc/kit/index.c2, which loses)
+[[export]] const char *kit_name(void) { return "kit/kit.c2"; }

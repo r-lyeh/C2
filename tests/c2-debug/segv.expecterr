@@ -1,0 +1,6 @@
+script crashed (SIGSEGV, a bad memory access); call stack, innermost first:
+  set(p = NULL) at segv.c2:3
+  level(n = 0) at segv.c2:4
+  level(n = 1) at segv.c2:4
+  level(n = 2) at segv.c2:4
+  main() at segv.c2:5

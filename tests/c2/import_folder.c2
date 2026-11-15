@@ -1,0 +1,9 @@
+// #import "x" looks for x.c2, then x/x.c2, then x/index.c2 (#import "runtime" is runtime/runtime.c2)
+#import "inc/pkg"
+#import "inc/kit"
+#import "runtime"
+int main() {
+    string s = f"{pkg_answer()} {kit_name()}";
+    printf("%s\n", s.data());
+    s.free();
+}

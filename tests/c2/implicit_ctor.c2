@@ -1,0 +1,13 @@
+// .c2: a constructor function converts a value that is not a T (string s = "hi", f("hi"), return "hi")
+#import "runtime"
+size_t n(string s) { return s.len(); }
+string name() { return "Ada"; }
+struct vec2 { float x, y; };
+int main() {
+    string s = "hello";
+    string t = name();
+    printf("%s %s %zu\n", s.data(), t.data(), n("four"));
+    s.free(); t.free();
+    vec2 v = vec2(1, 2);
+    printf("%g\n", v.y);
+}

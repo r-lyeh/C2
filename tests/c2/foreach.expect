@@ -1,0 +1,22 @@
+0 1 2 3 4 
+0 5 10 15 
+4 3 2 1 0 
+25 15 5 
+-3 -2 -1 0 1 2 
+2 1 0 
+3 2 0 
+0 1 
+68 c3 a9 6c 6c 6f 20 e2 82 ac 
+U+0068 U+00E9 U+006C U+006C U+006F U+0020 U+20AC 
+[a][b][c]
+<x><y>
+10 20 30 40 
+0 0 total 4
+potion key 
+ada:3 bo:7 
+ada bo 
+3 7 
+ada:4 bo:8 
+5 9 
+name n 
+[one][two][three]

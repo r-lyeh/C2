@@ -1,0 +1,65 @@
+// runtime/array.c2: the C² runtime's dynamic array: a plain `T *` with its count and capacity stored just
+// before the first element (as in r-lyeh/min's array(t)), so a[i], passing it to C and
+// countof-free loops all work.  A null pointer is an empty array: `array(int) a;` needs no
+// initializer in .c2.
+//
+//   array(int) a;
+//   array_push(a, 1); array_push(a, 2);
+//   for (int i = 0; i < array_count(a); i++) printf("%d\n", a[i]);
+//   array_foreach(a, it) *it *= 10;
+//   int last = array_pop(a);
+//   array_free(a);
+//
+// The macros take the array variable itself (they may reallocate it) and evaluate each argument
+// once.  Growth doubles; out of memory aborts with a message.
+// A module: #import "runtime/array".  The macros are #export-ed; what they call is [[export]]ed too, since
+// they expand in the importer's code.
+
+[[export]] struct array_header { size_t count, cap; };   // 16 bytes: elements stay 16-aligned
+
+#define array_hdr_(a) ((array_header *)(void *)(a) - 1)
+
+[[export]] void *array_grow_(void *a, size_t n, size_t esize) {        // capacity for n elements
+    array_header *h = a ? array_hdr_(a) : NULL;
+    size_t cap = h ? h->cap : 0;
+    if (n <= cap) return a;
+    size_t want = cap ? cap * 2 : 8;
+    if (want < n) want = n;
+    if (want > (SIZE_MAX - sizeof(array_header)) / esize) { fprintf(stderr, "array: too large\n"); abort(); }
+    array_header *g = realloc(h, sizeof(array_header) + want * esize);
+    if (!g) { fprintf(stderr, "array: out of memory (%zu elements)\n", want); abort(); }
+    if (!h) g->count = 0;
+    g->cap = want;
+    return g + 1;
+}
+
+[[export]] void array_check_(size_t i, size_t count, const char *what) {
+    if (i >= count) { fprintf(stderr, "array_%s: index %zu out of range (count %zu)\n", what, i, count); abort(); }
+}
+
+#define array(T) T * [[__c2_array]]           /* a T * the compiler knows as an array(T) (reflection) */
+#define array_count(a) ((a) ? array_hdr_(a)->count : (size_t)0)
+#define array_cap(a) ((a) ? array_hdr_(a)->cap : (size_t)0)
+#define array_reserve(a, n) ((void)((a) = array_grow_((a), (n), sizeof *(a))))
+#define array_push(a, ...) ({ typeof(a) *a_ = &(a); typeof(**a_) v_ = (__VA_ARGS__); size_t n_ = array_count(*a_); \
+    *a_ = array_grow_(*a_, n_ + 1, sizeof **a_); memcpy(*a_ + n_, &v_, sizeof v_); array_hdr_(*a_)->count = n_ + 1; })
+#define array_pop(a) ({ typeof(a) a_ = (a); array_check_(0, array_count(a_), "pop"); a_[--array_hdr_(a_)->count]; })
+#define array_last(a) (*({ typeof(a) a_ = (a); array_check_(0, array_count(a_), "last"); &a_[array_count(a_) - 1]; }))
+#define array_resize(a, n) ({ typeof(a) *a_ = &(a); size_t n_ = (n), c_ = array_count(*a_); \
+    if (n_ || *a_) { *a_ = array_grow_(*a_, n_, sizeof **a_); \
+        if (n_ > c_) memset(*a_ + c_, 0, (n_ - c_) * sizeof **a_); array_hdr_(*a_)->count = n_; } })
+#define array_insert(a, i, ...) ({ typeof(a) *a_ = &(a); size_t i_ = (i), c_ = array_count(*a_); \
+    typeof(**a_) v_ = (__VA_ARGS__); array_check_(i_, c_ + 1, "insert"); \
+    *a_ = array_grow_(*a_, c_ + 1, sizeof **a_); \
+    memmove(*a_ + i_ + 1, *a_ + i_, (c_ - i_) * sizeof **a_); memcpy(*a_ + i_, &v_, sizeof v_); array_hdr_(*a_)->count++; })
+#define array_erase(a, i) ({ typeof(a) a_ = (a); size_t i_ = (i), c_ = array_count(a_); \
+    array_check_(i_, c_, "erase"); memmove(a_ + i_, a_ + i_ + 1, (c_ - i_ - 1) * sizeof *a_); array_hdr_(a_)->count--; })
+#define array_clear(a) ((void)((a) ? array_hdr_(a)->count = 0 : 0))
+#define array_free(a) ((void)((a) ? free(array_hdr_(a)) : (void)0, (a) = NULL))
+#define array_copy(a) ({ typeof(a) a_ = (a), b_ = NULL; size_t c_ = array_count(a_); \
+    if (c_) { b_ = array_grow_(NULL, c_, sizeof *a_); memcpy(b_, a_, c_ * sizeof *a_); array_hdr_(b_)->count = c_; } b_; })
+#define array_sort(a, cmp) qsort((a), array_count(a), sizeof *(a), (cmp))
+#define array_foreach(a, it) for (typeof(*(a)) *it = (a), *it##_end_ = (a) + array_count(a); it < it##_end_; it++)
+
+#export array array_count array_cap array_reserve array_push array_pop array_last array_resize
+#export array_insert array_erase array_clear array_free array_copy array_sort array_foreach

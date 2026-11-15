@@ -1,0 +1,50 @@
+// for (T x : things): ranges (0..n, 0..n..5, n..0, 26..0..-10, -3..3, unsigned down),
+// text (char bytes, u32 UTF-8 characters), arrays, array(T) (copies, pointers, const pointers, auto *),
+// maps (entries, keys(), values()), sets, reflect(T) fields, a type with T_next; break and continue
+#import "runtime"
+struct Item { string name; int n; };
+struct Lines { const char *p; };
+bool Lines_next(Lines *l, string *out) {
+    if (!*l.p) return false;
+    const char *e = strchr(l.p, '\n'); size_t n = e ? (size_t)(e - l.p) : strlen(l.p);
+    *out = string(l.p, n); l.p += n + (e != NULL); return true;
+}
+int main() {
+    for (int i : 0..5) printf("%d ", i); puts("");
+    for (int i : 0..20..5) printf("%d ", i); puts("");
+    for (int i : 5..0) printf("%d ", i); puts("");
+    for (int i : 26..0..-10) printf("%d ", i); puts("");
+    for (int i : -3..3) printf("%d ", i); puts("");
+    for (size_t i : 3..0) printf("%zu ", i); puts("");
+    int n = 4;
+    for (int i : n..0) { if (i == 1) continue; printf("%d ", i); } puts("");
+    for (int i : 0..n) { if (i == 2) break; printf("%d ", i); } puts("");
+    string title = string("héllo €");
+    for (char c : title) printf("%02x ", (unsigned char)c); puts("");
+    for (u32 c : title) printf("U+%04X ", c); puts("");
+    for (char c : "abc") printf("[%c]", c); puts("");
+    char buf[8] = "xy";
+    for (char c : buf) printf("<%c>", c); puts("");
+    int a[4] = {1, 2, 3, 4};
+    for (int *p : a) *p *= 10;
+    for (int v : a) printf("%d ", v); puts("");
+    array(Item) bag = NULL;
+    array_push(bag, (Item){string("potion"), 3}); array_push(bag, (Item){string("key"), 1});
+    int total = 0;
+    for (Item it : bag) total += it.n;
+    for (Item *it : bag) it.n = 0;
+    for (const Item *it : bag) printf("%d ", it.n); printf("total %d\n", total);
+    for (auto *it : bag) printf("%s ", it.name.data()); puts("");
+    map(const char *, int) scores = NULL;
+    map_set(scores, "ada", 3); map_set(scores, "bo", 7);
+    for (auto *e : scores) printf("%s:%d ", e.key, e.value); puts("");
+    for (const char *k : scores.keys()) printf("%s ", k); puts("");
+    for (int v : scores.values()) printf("%d ", v); puts("");
+    for (auto *v : scores.values()) *v += 1;
+    for (auto e : scores) printf("%s:%d ", e.key, e.value); puts("");
+    set(short) seen = NULL; set_add(seen, 5); set_add(seen, 9);
+    for (int id : seen) printf("%d ", id); puts("");
+    for (const c2field *f : reflect(Item)) printf("%s ", f.name); puts("");
+    for (string line : (Lines){"one\ntwo\nthree"}) { printf("[%s]", line.data()); line.free(); } puts("");
+    title.free();
+}

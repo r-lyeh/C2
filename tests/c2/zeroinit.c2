@@ -1,0 +1,19 @@
+/* .c2: locals without an initializer start zeroed, every time their declaration runs (.c: undefined) */
+#include <stdio.h>
+struct Rect { int id; float x, y; };
+int main(void) {
+    int n = 5;
+    for (int i = 0; i < 3; i++) {
+        int z;
+        double d;
+        char *p;
+        struct Rect r;
+        long v[n + 2];
+        int zero = 1;
+        for (int k = 0; k < n + 2; k++) zero &= v[k] == 0;
+        printf("%d %g %d %d %g %d;", z, d, p == NULL, r.id, r.y, zero);
+        z = 99; d = 1.5; p = (char *)&z; r.id = 7; r.y = 2; v[0] = 5;
+    }
+    printf("\n");
+    return 0;
+}

@@ -1,0 +1,14 @@
+// flags: -g
+// c2 -g: a crash inside a coroutine shows its frames, then the ones that resumed it
+#import "runtime"
+struct enemy { int hp; };
+int hit(enemy *e, int dmg) { return e.hp - dmg; }   // e is NULL for the last one
+void wave(void *arg) {
+    (void)arg;
+    enemy *es[3] = {&(enemy){10}, &(enemy){20}, NULL};
+    for (int i = 0; i < 3; i++) printf("%d\n", hit(es[i], 5));
+}
+int main() {
+    co *c = co_create(wave);
+    c.resume();
+}

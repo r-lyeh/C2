@@ -1,0 +1,11 @@
+// Constructors make values; a [[destructor]] frees them.  A returned T nobody keeps is freed at the end
+// of its statement; one you keep in a variable is yours (kept.free() is buf_free: a type method).
+struct buf { char *p; };
+buf buf(const char *s) { return (buf){strdup(s)}; }
+[[destructor]] void buf_free(buf *b) { printf("free %s\n", b.p); free(b.p); b.p = NULL; }
+int main() {
+    printf("%s\n", buf("temporary").p);   // printed, then freed right after this line
+    buf kept = buf("kept");               // stored in a variable: not freed for you
+    printf("%s\n", kept.p);
+    kept.free();
+}

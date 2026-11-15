@@ -1,0 +1,11 @@
+// overloads exported by a module, called both ways; C's abs(int) next to a .c2 abs(vec2)
+#import "inc/shapes"
+struct vec2 { float x, y; };
+vec2 abs(vec2 v) { return vec2(fabsf(v.x), fabsf(v.y)); }
+int main() {
+    circle c = {2}; square s = {3};
+    printf("%g %g %g %g\n", area(c), s.area(), total(c, s), c.area());
+    vec2 v = abs(vec2(-1, -2));
+    printf("%d %g %g\n", abs(-3), v.x, v.y);
+    return 0;
+}

@@ -1,0 +1,1 @@
+:3: error: for (... : 0..n..k): the step is a constant, not 0 (..10, ..-10); a variable step: a plain for loop

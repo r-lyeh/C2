@@ -1,0 +1,73 @@
+// [[operator X]]: operators on struct operands call these functions (exact match on the struct operand)
+#import "runtime"
+struct vec3 { float x, y, z; };
+[[operator+]]  vec3 vec3_add(vec3 a, vec3 b) { return vec3(a.x + b.x, a.y + b.y, a.z + b.z); }
+[[operator-]]  vec3 vec3_sub(vec3 a, vec3 b) { return vec3(a.x - b.x, a.y - b.y, a.z - b.z); }
+[[operator*]]  vec3 vec3_scale(vec3 a, float k) { return vec3(a.x * k, a.y * k, a.z * k); }
+[[operator*]]  vec3 vec3_scale_l(float k, vec3 a) { return a * k; }
+[[operator*]]  float vec3_dot(vec3 a, vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+[[operator/]]  vec3 vec3_div(vec3 a, float k) { return vec3(a.x / k, a.y / k, a.z / k); }
+[[operator==]] bool vec3_eq(const vec3 *a, const vec3 *b) { return a->x == b->x && a->y == b->y && a->z == b->z; }
+[[operator[]]] float *vec3_at(vec3 *v, int i) { return &v->x + i; }
+[[operator+=]] vec3 *vec3_add_to(vec3 *a, vec3 b) { a->x += b.x; a->y += b.y; a->z += b.z; return a; }
+
+
+[[operator-]]  vec3 vec3_neg(vec3 a) { return vec3(-a.x, -a.y, -a.z); }   // one parameter: -a
+
+struct money { long long cents; };                 // only < : the other comparisons come from it
+[[operator<]]  bool money_lt(money a, money b) { return a.cents < b.cents; }
+[[operator%]]  money money_mod(money a, long long step) { return (money){a.cents % step}; }
+
+struct ver { int major, minor; };                  // every comparison its own function
+[[operator<]]  bool ver_lt(ver a, ver b) { return a.major < b.major || (a.major == b.major && a.minor < b.minor); }
+[[operator<=]] bool ver_le(ver a, ver b) { return !(b < a); }
+[[operator>]]  bool ver_gt(ver a, ver b) { return b < a; }
+[[operator>=]] bool ver_ge(ver a, ver b) { puts("(ver_ge)"); return !(a < b); }
+
+struct acc { int total; };                         // extra parameters with defaults
+[[operator+=]] acc *acc_add(acc *a, int v, int scale = 10) { a->total += v * scale; return a; }
+[[operator*]]  int acc_mul(acc a, int k, int bias = a.total) { return a.total * k + bias; }
+
+void show(const char *what, vec3 v) { printf("%s = (%g, %g, %g)\n", what, v.x, v.y, v.z); }
+
+int main() {
+    vec3 a = vec3(1, 2, 3), b = vec3(10, 20, 30);
+    show("a + b", a + b);
+    show("b - a", b - a);
+    show("a * 2", a * 2);
+    show("2 * a", 2 * a);
+    printf("a * b = %g\n", a * b);
+    show("b / 10", b / 10);
+    show("a + b * 2 - a", a + b * 2 - a);          // precedence as in C
+    printf("%d %d %d\n", a == a, a == b, a != b);
+    printf("%d\n", a + a == a * 2);                 // temporaries passed by pointer
+    a[1] = 7;
+    a[2] += 1;
+    show("a", a);
+    a += b;                                         // [[operator+=]]
+    show("a += b", a);
+    a -= b;                                         // no -=: a = a - b
+    a *= 2;
+    a /= 2;
+    show("back", a);
+    show("-a", -a);
+    show("-(a + b) * 2", -(a + b) * 2);
+    money m1 = {150}, m2 = {250};
+    printf("%d %d %d %d | %d %d %d %d\n", m1 < m2, m1 > m2, m1 <= m2, m1 >= m2,
+           m2 < m1, m2 > m1, m1 <= m1, m1 >= m1);
+    printf("%lld\n", (m2 % 100).cents);
+    m2 %= 60;                                       // no %=: m2 = m2 % 60
+    printf("%lld\n", m2.cents);
+    ver v1 = {1, 2}, v2 = {1, 10};
+    printf("%d %d %d %d\n", v1 < v2, v1 <= v2, v1 > v2, v1 >= v2);
+    string s = string("hi");
+    printf("%d %d\n", s == "hi", s != "hi");
+    s += ", there";                                 // string_append(&s, ", there"): len takes its default
+    s += " and a tail long enough for the heap";
+    printf("%s %zu %d\n", s.data(), s.len(), s == "hi, there and a tail long enough for the heap");
+    s.free();
+    acc ac = {1};
+    ac += 2;
+    printf("%d %d\n", ac.total, ac * 2);
+    return 0;
+}

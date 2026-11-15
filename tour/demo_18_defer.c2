@@ -1,0 +1,7 @@
+// defer runs a statement or {} scope right after the enclosing block ends.
+int main() {
+    FILE *f = fopen(__FILE__, "r");
+    if (!f) return 1;
+    defer fclose(f), puts("closed");
+    puts("reading");
+}

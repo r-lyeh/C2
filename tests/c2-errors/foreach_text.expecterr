@@ -1,0 +1,1 @@
+:4: error: for (int c : s): text walks as char (its bytes) or u32 (its UTF-8 characters)

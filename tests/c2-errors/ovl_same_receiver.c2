@@ -1,0 +1,5 @@
+// T and T * are one receiver: these two overloads collide (both vec2_f)
+struct vec2 { float x, y; };
+void f(vec2 v) {}
+void f(vec2 *v) {}
+void f(int x) {}

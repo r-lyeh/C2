@@ -1,0 +1,8 @@
+name: "Ada"
+hp: 7
+pos: Vec { x = 1, y = 2 }
+gold: 3
+gems: 0
+lvl: 0
+y differs
+6 fields

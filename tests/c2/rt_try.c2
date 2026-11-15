@@ -1,0 +1,53 @@
+// try/throw (runtime/try): throw(code) returns through every call up to the innermost try, which returns the
+// code; on the way, defers run and temporaries are destroyed
+#import "runtime"
+static int depth, live;
+struct res { int id; };
+res res(int id) { live++; return (res){id}; }
+[[destructor]] void res_free(res *r) { if (r.id) live--; r.id = 0; }
+int res_get(res *r) { return r.id; }
+
+void dive(int n) { if (n == 0) throw(42); dive(n - 1); puts("not reached"); }
+void work(void *arg) { depth++; dive(*(int *)arg); puts("not reached"); }
+void ok(void *arg) { (void)arg; puts("ok runs"); }
+void inner(void *arg) { (void)arg; throw(7); }
+void outer(void *arg) { (void)arg; printf("inner gave %d\n", try(inner)); throw(9); }
+
+int boom(int x) { if (x > 2) throw(3); return x; }
+void cleanup(void *arg) {
+    (void)arg;
+    defer puts("  defer of cleanup ran");
+    for (int i = 0; i < 5; i++) {
+        defer printf("  loop defer %d\n", i);
+        printf("  %d\n", res(i + 1).get() + boom(i));   // the temporary is destroyed on the way out
+    }
+}
+
+int cmp(const void *a, const void *b) { if (*(int *)a == 3) throw(7); return *(int *)a - *(int *)b; }
+void sorter(void *arg) { (void)arg; int v[] = {5, 3, 1}; qsort(v, 3, sizeof v[0], cmp); puts("not reached"); }
+int twice(int x) { if (x > 10) throw(2); return x * 2; }
+void viaptr(void *arg) { (void)arg; int (*fp)(int) = twice; printf("%d\n", fp(3)); fp(20); puts("not reached"); }
+
+void yielder(void *arg) { (void)arg; for (int i = 0; i < 3; i++) { printf("step %d\n", i); co_yield(); } throw(5); }
+void driver(void *arg) {
+    (void)arg;
+    co *c = co_create(yielder);
+    defer c.free();
+    while (c.resume()) puts("frame");               // the coroutine's throw ends it, then leaves here
+    puts("not reached");
+}
+
+int main(void) {
+    int n = 50;
+    printf("%d\n", try(work, &n));
+    printf("%d\n", try(ok));
+    printf("%d\n", try(outer));
+    long sum = 0;
+    for (int i = 0; i < 1000; i++) sum += try(work, &n);
+    printf("%ld %d\n", sum, depth);
+    printf("cleanup: %d, live %d\n", try(cleanup), live);
+    printf("driver: %d\n", try(driver));
+    printf("qsort: %d\n", try(sorter));             // through C code: it returns, then C² leaves
+    printf("pointer: %d\n", try(viaptr));
+    return 0;
+}

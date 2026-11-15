@@ -1,0 +1,9 @@
+{
+  ages: {
+    "a name much longer than twenty-three bytes": 3,
+    bo: 7,
+  },
+  tags: ["a tag longer than twenty-three bytes, too"],
+}
+
+2 4 7 1

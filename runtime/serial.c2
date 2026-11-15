@@ -1,0 +1,906 @@
+// runtime/serial.c2: values saved as text, through their reflection tables (runtime/reflect).
+//
+//   string s = hero.json5();                       // the text (hero.xml(): as XML)
+//   if (!hero.save("save.json5")) ...              // a file, replaced whole or not at all (.xml: XML)
+//
+// JSON5 is JSON that people can edit: keys without quotes, trailing commas, comments, NaN and
+// Infinity.  A struct is an object, an array or array(T) a list, a map with text or enum keys an
+// object (other keys: a list of [key, value] pairs), a set a list, an enum its name, a string, char *
+// or char [N] text.  Fields marked [[skip]] are left out, [[rename("hp")]] fields are saved under that
+// name.  Pointers aren't followed (other than char *, saved as its text) and are left out, as are
+// unions (which member is in use isn't known) and functions.
+// Loading reads a document (runtime/doc) back into a value, through the same tables:
+//
+//   string errors = {};
+//   if (!hero.load("save.json5", &errors)) puts(errors.data());   // "Hero.bag[1].count: a number expected"
+//
+// Fields are found by name (or their [[rename]] name); a missing one keeps the value it had (so set
+// defaults first), an unknown one is ignored.  Owned values are built through their constructors and
+// the old ones freed.  hero.parse(text) reads text (XML if it starts with '<').  XML: a struct is an
+// element with a child element per field, a list's items are <item> elements, a map's carry key="...".
+// x.set("250") sets one value from text; eval("heal(hero, 20)") calls a function by name.
+// A module of its own: #import "runtime/serial" (not part of #import "runtime": it is big to compile).
+#import "string"
+#import "array"
+#import "map"
+#import "reflect"
+#import "doc"
+#include <ctype.h>
+
+#ifdef _WIN32
+int MoveFileExA(const char *from, const char *to, unsigned flags);   // kernel32: rename() won't replace a file
+#endif
+
+static void indent(string *out, int depth) { out.append_c('\n'); for (int i = 0; i < depth; i++) out.append("  "); }
+
+static void text(string *out, const char *s, size_t n) {    // a JSON5 string: "...", escaped
+    out.append_c('"');
+    for (size_t i = 0; i < n && s[i]; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '"' || c == '\\') { out.append_c('\\'); out.append_c((char)c); }
+        else if (c == '\n') out.append("\\n");
+        else if (c == '\r') out.append("\\r");
+        else if (c == '\t') out.append("\\t");
+        else if (c < 32 || c == 127) out.appendf("\\u%04x", c);
+        else out.append_c((char)c);                          // UTF-8 passes through
+    }
+    out.append_c('"');
+}
+
+static bool ident_char(char c, bool first) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$' || (!first && c >= '0' && c <= '9');
+}
+static bool is_ident(const char *k) {                         // a key that needs no quotes
+    if (!k[0]) return false;
+    for (const char *c = k; *c; c++) if (!ident_char(*c, c == k)) return false;
+    return true;
+}
+static void key(string *out, const char *k) { if (is_ident(k)) out.append(k); else text(out, k, SIZE_MAX); }
+
+static long long int_of(const c2type *t, const void *p) {
+    switch (t.size) {
+    case 1: return t.kind == C2_UINT || t.kind == C2_BOOL ? *(const unsigned char *)p : *(const signed char *)p;
+    case 2: return t.kind == C2_UINT ? *(const unsigned short *)p : *(const short *)p;
+    case 4: return t.kind == C2_UINT ? *(const unsigned *)p : *(const int *)p;
+    default: return *(const long long *)p;
+    }
+}
+
+static void number(string *out, double d, bool single) {
+    if (d != d) out.append("NaN");
+    else if (d > 1e308 || d < -1e308) out.append(d > 0 ? "Infinity" : "-Infinity");
+    else {
+        char b[40];
+        for (int prec = single ? 6 : 15; prec <= (single ? 9 : 17); prec++) {   // the shortest that reads back the same
+            snprintf(b, sizeof b, "%.*g", prec, d);
+            double r = strtod(b, NULL);
+            if (single ? (float)r == (float)d : r == d) break;
+        }
+        if (!strpbrk(b, ".eEn")) strcat(b, ".0");          // stays a float when loaded
+        out.append(b);
+    }
+}
+
+// does a value of this kind get saved at all? (pointers other than char *, unions, functions: no)
+static bool savable(const c2type *t) {
+    if (!t) return false;
+    if (t.kind == C2_PTR) return t.of && t.of.kind == C2_CHAR;
+    return t.kind != C2_UNION && t.kind != C2_FUNC && t.kind != C2_VOID;
+}
+
+static bool scalar(const c2type *t) { return t && t.kind != C2_STRUCT && t.kind != C2_ARRAY && t.kind != C2_DYNARRAY &&
+                                             t.kind != C2_MAP && t.kind != C2_SET; }
+static bool text_key(const c2type *t) {                     // a map key that can be an object key
+    return t && (t.kind == C2_STRING || t.kind == C2_ENUM || (t.kind == C2_PTR && t.of && t.of.kind == C2_CHAR));
+}
+
+static void value(string *out, const c2type *t, const void *p, int depth);
+
+static void fields(string *out, const c2type *t, const char *p, int depth, bool *first) {
+    for (int i = 0; i < t.count; i++) {
+        const c2field *f = &t.fields[i];
+        if ((f.flags & C2_SKIP) || !f.type) continue;
+        if (!f.name[0] && f.type.kind == C2_STRUCT) { fields(out, f.type, p + f.offset, depth, first); continue; }   // anonymous struct
+        if (!savable(f.type)) continue;
+        if (!*first) out.append_c(',');
+        *first = false;
+        if (f.comment)                                              // [[comment("...")]]: a // line each
+            for (const char *c = f.comment; *c; ) {
+                size_t n = strcspn(c, "\n");
+                indent(out, depth);
+                out.append("// ");
+                out.appendf("%.*s", (int)n, c);
+                c += n + (c[n] == '\n');
+            }
+        indent(out, depth);
+        key(out, f.key ? f.key : f.name);
+        out.append(": ");
+        if (f.bits) {                                               // a bit-field: from its unit
+            unsigned long long u = (unsigned long long)int_of(f.type, p + f.offset);
+            long long v = (long long)((u >> f.bitpos) & ((1ULL << f.bits) - 1));
+            if (f.type.kind == C2_INT && (v >> (f.bits - 1)) & 1) v -= 1LL << f.bits;
+            out.appendf("%lld", v);
+        } else value(out, f.type, p + f.offset, depth);
+    }
+}
+
+static void list(string *out, const c2type *of, const char *base, size_t n, size_t stride, int depth) {
+    if (!n) { out.append("[]"); return; }
+    bool flat = scalar(of);                                         // numbers on one line, objects one per line
+    out.append_c('[');
+    for (size_t i = 0; i < n; i++) {
+        if (flat) { if (i) out.append(", "); }
+        else indent(out, depth + 1);
+        value(out, of, base + i * stride, depth + 1);
+        if (!flat) out.append_c(',');
+    }
+    if (!flat) indent(out, depth);
+    out.append_c(']');
+}
+
+static size_t round_to(size_t n, int a) { return a > 1 ? (n + a - 1) / a * a : n; }
+
+static void value(string *out, const c2type *t, const void *p, int depth) {
+    switch (t.kind) {
+    case C2_BOOL: out.append(*(const bool *)p ? "true" : "false"); return;
+    case C2_CHAR: case C2_INT: out.appendf("%lld", int_of(t, p)); return;
+    case C2_UINT: out.appendf("%llu", (unsigned long long)int_of(t, p) & (t.size < 8 ? (1ULL << t.size * 8) - 1 : ~0ULL)); return;
+    case C2_FLOAT: number(out, t.size == 4 ? (double)*(const float *)p : *(const double *)p, t.size == 4); return;
+    case C2_ENUM: {
+        long long v = int_of(t.of, p);
+        const char *n = enum_name(t, v);
+        if (n) text(out, n, SIZE_MAX); else out.appendf("%lld", v);
+        return;
+    }
+    case C2_PTR: {
+        const char *s = *(const char *const *)p;
+        if (s) text(out, s, SIZE_MAX); else out.append("null");
+        return;
+    }
+    case C2_STRING: { string *s = (string *)p; text(out, s.data(), s.len()); return; }
+    case C2_ARRAY:
+        if (t.of && t.of.kind == C2_CHAR) { text(out, p, (size_t)t.count); return; }   // char [N]: text
+        list(out, t.of, p, (size_t)t.count, t.of.size, depth);
+        return;
+    case C2_DYNARRAY: {
+        const char *a = *(const char *const *)p;
+        list(out, t.of, a, array_count(a), t.of.size, depth);
+        return;
+    }
+    case C2_SET: {
+        const char *e = *(const char *const *)p;
+        list(out, t.of, e, map_count(e), round_to(t.of.size, t.of.align), depth);
+        return;
+    }
+    case C2_MAP: {
+        const char *e = *(const char *const *)p;
+        size_t n = map_count(e);
+        int ka = t.of.align, va = t.val.align;
+        size_t voff = round_to(t.of.size, va), esize = round_to(voff + t.val.size, ka > va ? ka : va);
+        if (!n) { out.append(text_key(t.of) ? "{}" : "[]"); return; }
+        bool obj = text_key(t.of);
+        out.append_c(obj ? '{' : '[');
+        for (size_t i = 0; i < n; i++) {
+            indent(out, depth + 1);
+            if (obj) {                                              // the key: text, or an enum's name
+                const char *k = NULL;
+                if (t.of.kind == C2_STRING) k = ((string *)(e + i * esize)).data();
+                else if (t.of.kind == C2_PTR) k = *(const char *const *)(e + i * esize);
+                else k = enum_name(t.of, int_of(t.of.of, e + i * esize));
+                if (k) key(out, k); else out.appendf("\"%lld\"", int_of(t.of.of, e + i * esize));
+                out.append(": ");
+            } else {
+                out.append_c('[');
+                value(out, t.of, e + i * esize, depth + 1);
+                out.append(", ");
+            }
+            value(out, t.val, e + i * esize + voff, depth + 1);
+            if (!obj) out.append_c(']');
+            out.append_c(',');
+        }
+        indent(out, depth);
+        out.append_c(obj ? '}' : ']');
+        return;
+    }
+    case C2_STRUCT: {
+        bool first = true;
+        out.append_c('{');
+        fields(out, t, p, depth + 1, &first);
+        if (first) { out.append_c('}'); return; }
+        out.append_c(',');                                          // JSON5: trailing commas are fine
+        indent(out, depth);
+        out.append_c('}');
+        return;
+    }
+    default: out.append("null");                                    // a union, a function, void
+    }
+}
+
+// appends p's value, of type t, as JSON5
+[[export]] void json5_append(string *out, const c2type *t, const void *p) { value(out, t, p, 0); }
+
+// p's value, of type t, as JSON5 text (ending with a newline)
+[[export]] string json5_text(const c2type *t, const void *p) {
+    string s = {};
+    value(&s, t, p, 0);
+    s.append_c('\n');
+    return s;
+}
+
+// writes p's value to path as JSON5.  The file is replaced whole or not at all: the text goes to
+// path.tmp first, which then takes the old file's place.  false (and errno) if it couldn't.
+[[export]] bool json5_save(const char *path, const c2type *t, const void *p) {
+    string s = json5_text(t, p);
+    defer s.free();
+    char tmp[1024];
+    if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return false;
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return false;
+    bool ok = fwrite(s.data(), 1, s.len(), f) == s.len();
+    ok = fflush(f) == 0 && ok;
+    ok = fclose(f) == 0 && ok;
+    if (!ok) { remove(tmp); return false; }
+#ifdef _WIN32
+    if (!MoveFileExA(tmp, path, 1 | 8)) { remove(tmp); return false; }   // REPLACE_EXISTING | WRITE_THROUGH
+#else
+    if (rename(tmp, path) != 0) { remove(tmp); return false; }    // replaces path in one step
+#endif
+    return true;
+}
+
+
+// ---------------------------------------------------------------------------- XML
+
+static void xml_text(string *out, const char *s, size_t n, bool attribute) {   // escaped
+    bool all_space = n > 0 && s[0];
+    for (size_t i = 0; i < n && s[i]; i++) if (s[i] != ' ' && s[i] != '\t' && s[i] != '\n' && s[i] != '\r') all_space = false;
+    for (size_t i = 0; i < n && s[i]; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '&') out.append("&amp;");
+        else if (c == '<') out.append("&lt;");
+        else if (c == '>') out.append("&gt;");
+        else if (c == '"' && attribute) out.append("&quot;");
+        else if (all_space || (c < 32 && c != '\n' && c != '\t') || (attribute && c < 32)) out.appendf("&#%d;", c);   // (kept as written)
+        else out.append_c((char)c);
+    }
+}
+
+static bool xml_name_ok(const char *k) {                      // usable as a tag?
+    if (!k[0] || !(ident_char(k[0], true))) return false;
+    for (const char *c = k; *c; c++) if (!ident_char(*c, false) && *c != '-' && *c != '.') return false;
+    return true;
+}
+
+static void xml_value(string *out, const c2type *t, const void *p, int depth);
+
+static void xml_element(string *out, const char *tag, const char *keyattr, const c2type *t, const void *p, int depth) {
+    indent(out, depth);
+    out.appendf("<%s", tag);
+    if (keyattr) { out.append(" key=\""); xml_text(out, keyattr, SIZE_MAX, true); out.append_c('"'); }
+    bool nested = t.kind == C2_STRUCT || (t.kind == C2_ARRAY && !(t.of && t.of.kind == C2_CHAR)) ||
+                  t.kind == C2_DYNARRAY || t.kind == C2_MAP || t.kind == C2_SET;
+    string inner = {};
+    defer inner.free();
+    xml_value(&inner, t, p, depth);
+    if (!inner.len()) { out.append("/>"); return; }
+    out.append_c('>');
+    out.append(inner.data());
+    if (nested) indent(out, depth);
+    out.appendf("</%s>", tag);
+}
+
+static void xml_list(string *out, const c2type *of, const char *base, size_t n, size_t stride, int depth) {
+    for (size_t i = 0; i < n; i++) xml_element(out, "item", NULL, of, base + i * stride, depth + 1);
+}
+
+static void xml_value(string *out, const c2type *t, const void *p, int depth) {
+    switch (t.kind) {
+    case C2_STRING: { string *s = (string *)p; xml_text(out, s.data(), s.len(), false); return; }
+    case C2_PTR: { const char *s = *(const char *const *)p; if (s) xml_text(out, s, SIZE_MAX, false); return; }
+    case C2_ENUM: {
+        long long v = int_of(t.of, p);
+        const char *n = enum_name(t, v);
+        if (n) out.append(n); else out.appendf("%lld", v);
+        return;
+    }
+    case C2_ARRAY:
+        if (t.of && t.of.kind == C2_CHAR) { xml_text(out, p, (size_t)t.count, false); return; }
+        xml_list(out, t.of, p, (size_t)t.count, t.of.size, depth);
+        return;
+    case C2_DYNARRAY: { const char *a = *(const char *const *)p; xml_list(out, t.of, a, array_count(a), t.of.size, depth); return; }
+    case C2_SET: { const char *e = *(const char *const *)p; xml_list(out, t.of, e, map_count(e), round_to(t.of.size, t.of.align), depth); return; }
+    case C2_MAP: {
+        const char *e = *(const char *const *)p;
+        int ka = t.of.align, va = t.val.align;
+        size_t voff = round_to(t.of.size, va), esize = round_to(voff + t.val.size, ka > va ? ka : va);
+        for (size_t i = 0; i < map_count(e); i++) {
+            string k = {};
+            if (t.of.kind == C2_STRING) k.append(((string *)(e + i * esize)).data());
+            else if (t.of.kind == C2_PTR) { const char *ks = *(const char *const *)(e + i * esize); if (ks) k.append(ks); }
+            else value(&k, t.of, e + i * esize, 0);              // a number, or "NAME" (quotes dropped below)
+            if (t.of.kind == C2_ENUM && k.len() >= 2 && k.data()[0] == '"') { string u = string(k.data() + 1, k.len() - 2); k.free(); k = u; }
+            xml_element(out, "item", k.data(), t.val, e + i * esize + voff, depth + 1);
+            k.free();
+        }
+        return;
+    }
+    case C2_STRUCT:
+        for (int i = 0; i < t.count; i++) {
+            const c2field *f = &t.fields[i];
+            if ((f.flags & C2_SKIP) || !f.type || !savable(f.type)) continue;
+            if (!f.name[0] && f.type.kind == C2_STRUCT) { xml_value(out, f.type, (const char *)p + f.offset, depth); continue; }
+            const char *tag = f.key ? f.key : f.name;
+            if (f.comment) {                                         // <!-- [[comment("...")]] -->
+                indent(out, depth + 1);
+                out.append("<!-- ");
+                for (const char *c = f.comment; *c; c++)
+                    if (*c == '-' && c[1] == '-') out.append("- ");      // (no "--" inside a comment)
+                    else if (*c == '\n') { indent(out, depth + 1); out.append("     "); }
+                    else out.append_c(*c);
+                out.append(" -->");
+            }
+            if (f.bits) {
+                unsigned long long u = (unsigned long long)int_of(f.type, (const char *)p + f.offset);
+                long long v = (long long)((u >> f.bitpos) & ((1ULL << f.bits) - 1));
+                if (f.type.kind == C2_INT && (v >> (f.bits - 1)) & 1) v -= 1LL << f.bits;
+                indent(out, depth + 1);
+                out.appendf("<%s>%lld</%s>", tag, v, tag);
+            } else xml_element(out, tag, NULL, f.type, (const char *)p + f.offset, depth + 1);
+        }
+        return;
+    default: value(out, t, p, depth);                            // numbers, bools: as JSON5 writes them
+    }
+}
+
+// p's value as an XML document: the root element is named after the type
+[[export]] string xml_text_of(const c2type *t, const void *p) {
+    string s = string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    xml_element(&s, xml_name_ok(t.name) ? t.name : "value", NULL, t, p, 0);
+    s.append_c('\n');
+    return s;
+}
+
+static bool write_whole(const char *path, string *s) {             // path.tmp, then in place of path
+    char tmp[1024];
+    if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return false;
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return false;
+    bool ok = fwrite(s.data(), 1, s.len(), f) == s.len();
+    ok = fflush(f) == 0 && ok;
+    ok = fclose(f) == 0 && ok;
+    if (!ok) { remove(tmp); return false; }
+#ifdef _WIN32
+    if (!MoveFileExA(tmp, path, 1 | 8)) { remove(tmp); return false; }
+#else
+    if (rename(tmp, path) != 0) { remove(tmp); return false; }
+#endif
+    return true;
+}
+
+// writes p's value to path as XML, whole or not at all (as json5_save)
+[[export]] bool xml_save(const char *path, const c2type *t, const void *p) {
+    string s = xml_text_of(t, p);
+    defer s.free();
+    return write_whole(path, &s);
+}
+
+// ---------------------------------------------------------------------------- loading
+
+struct loader { string *errors; bool ok; const c2field *meta; };   // meta: the field loading (its [[clamp]], [[clamp(N)]])
+
+static void problem(loader *l, const char *where, const char *fmt, ...) {
+    l.ok = false;
+    if (!l.errors) return;
+    char msg[200];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    l.errors.appendf("%s: %s\n", where, msg);
+}
+
+static const docnode *scalar_of(const docnode *n) {             // an XML element: its text ("" if empty)
+    static docnode empty = {.kind = DOC_TEXT, .s = ""};
+    if (n.kind != DOC_OBJECT || !n.name) return n;
+    for (int i = 0; i < n.count; i++) if (n.items[i].name && !n.items[i].attribute && !strcmp(n.items[i].name, "$")) return &n.items[i];
+    return &empty;
+}
+
+static int seq_count(const docnode *n) {                        // a list's items, or an XML element's child elements
+    if (n.kind == DOC_LIST) return n.count;
+    int k = 0;
+    if (n.kind == DOC_OBJECT) for (int i = 0; i < n.count; i++) if (!n.items[i].attribute && n.items[i].name && strcmp(n.items[i].name, "$")) k++;
+    return k;
+}
+static docnode *seq_item(docnode *n, int i) {
+    if (n.kind == DOC_LIST) return &n.items[i];
+    for (int j = 0; j < n.count; j++)
+        if (!n.items[j].attribute && n.items[j].name && strcmp(n.items[j].name, "$") && i-- == 0) return &n.items[j];
+    return NULL;
+}
+static bool is_sequence(const docnode *n, bool xml) { return n.kind == DOC_LIST || (xml && n.kind == DOC_OBJECT); }
+
+static const char *kind_name(const docnode *n) {
+    switch (n.kind) {
+    case DOC_NULL: return "null"; case DOC_BOOL: return "true/false"; case DOC_INT: case DOC_REAL: return "a number";
+    case DOC_TEXT: return "text"; case DOC_LIST: return "a list"; default: return "an object";
+    }
+}
+
+static bool number_of(const docnode *n, double *d, long long *i, bool *integral) {   // a node's number
+    switch (n.kind) {
+    case DOC_BOOL: case DOC_INT: *i = n.i; *d = (double)n.i; *integral = true; return true;
+    case DOC_REAL: *d = n.f; *i = (long long)n.f; *integral = n.f == (double)(long long)n.f; return true;
+    case DOC_TEXT: {
+        const char *s = n.s;
+        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
+        if (!strcmp(s, "true")) { *i = 1; *d = 1; *integral = true; return true; }
+        if (!strcmp(s, "false")) { *i = 0; *d = 0; *integral = true; return true; }
+        char *e;
+        if (!strncmp(s, "NaN", 3)) { *d = 0.0 / 0.0; *integral = false; return true; }
+        if (!strncmp(s, "Infinity", 8) || !strncmp(s, "-Infinity", 9)) { *d = s[0] == '-' ? -HUGE_VAL : HUGE_VAL; *integral = false; return true; }
+        long long v = strtoll(s, &e, 0);
+        if (e != s && !*e) { *i = v; *d = (double)v; *integral = true; return true; }
+        *d = strtod(s, &e);
+        if (e == s) return false;
+        while (*e == ' ' || *e == '\t' || *e == '\n' || *e == '\r') e++;
+        if (*e) return false;
+        *i = (long long)*d;
+        *integral = *d == (double)*i;
+        return true;
+    }
+    }
+    return false;
+}
+
+static void put_int(const c2type *t, void *p, long long v) {
+    switch (t.size) {
+    case 1: *(unsigned char *)p = (unsigned char)v; break;
+    case 2: *(unsigned short *)p = (unsigned short)v; break;
+    case 4: *(unsigned *)p = (unsigned)v; break;
+    default: *(long long *)p = v;
+    }
+}
+static bool fits(const c2type *t, long long v) {
+    if (t.size >= 8) return true;
+    int bits = t.size * 8;
+    if (t.kind == C2_UINT || t.kind == C2_BOOL) return v >= 0 && (unsigned long long)v < (1ULL << bits);
+    return v >= -(1LL << (bits - 1)) && v < (1LL << (bits - 1));
+}
+
+static void load(loader *l, const c2type *t, void *p, docnode *n, string *where, bool xml);
+
+// [[clamp(min, max)]]: a value outside is reported and the nearest end kept
+static double in_clamp(loader *l, double v, string *where, bool integral) {
+    const c2field *f = l.meta;
+    if (!f || !(f.flags & C2_CLAMP) || !(v < f.min || v > f.max)) return v;
+    double to = v < f.min ? f.min : f.max;
+    if (integral) to = v < f.min ? ceil(f.min) : floor(f.max);
+    problem(l, where.data(), "%g is %s, %g", v, v < f.min ? "below the minimum" : "above the maximum", to);
+    return to;
+}
+// [[clamp(N)]]: text cut to N characters (UTF-8), reported
+static size_t in_maxlen(loader *l, const char *s, size_t len, string *where) {
+    const c2field *f = l.meta;
+    if (!f || !f.maxlen) return len;
+    size_t i = 0;
+    int chars = 0;
+    while (i < len) {
+        if (chars == f.maxlen) {
+            problem(l, where.data(), "text longer than %d characters, cut", f.maxlen);
+            return i;
+        }
+        i++;
+        while (i < len && ((unsigned char)s[i] & 0xC0) == 0x80) i++;   // the rest of a character
+        chars++;
+    }
+    return len;
+}
+
+// a bit-field from a node: into its unit
+static void load_bits(loader *l, const c2type *t, char *unit, int bits, int bitpos, docnode *c, string *where) {
+    double d; long long i; bool integral;
+    const docnode *s = scalar_of(c);
+    if (!number_of(s, &d, &i, &integral) || !integral) { problem(l, where.data(), "an integer expected, not %s", kind_name(s)); return; }
+    i = (long long)in_clamp(l, (double)i, where, true);
+    long long lo = t.kind == C2_INT ? -(1LL << (bits - 1)) : 0, hi = t.kind == C2_INT ? (1LL << (bits - 1)) - 1 : (1LL << bits) - 1;
+    if (i < lo || i > hi) { problem(l, where.data(), "%lld doesn't fit %d bits", i, bits); return; }
+    unsigned long long u = (unsigned long long)int_of(t, unit), mask = ((1ULL << bits) - 1) << bitpos;
+    u = (u & ~mask) | (((unsigned long long)i << bitpos) & mask);
+    put_int(t, unit, (long long)u);
+}
+
+static void load_key(loader *l, const c2type *t, void *k, const char *text, string *where) {   // a map key from text
+    const c2field *meta = l.meta;
+    l.meta = NULL;                                                // (a key: no [[clamp]])
+    defer l.meta = meta;
+    if (t.kind == C2_ENUM) {
+        for (int i = 0; i < t.count; i++) if (!strcmp(t.values[i].name, text)) { put_int(t.of, k, t.values[i].value); return; }
+        problem(l, where.data(), "'%s' isn't a %s", text, t.name);
+    } else if (t.kind == C2_STRING) *(string *)k = string(text);
+    else if (t.kind == C2_PTR) *(const char **)k = text;          // (the map copies char * keys)
+    else {
+        docnode tn = {.kind = DOC_TEXT, .s = text};
+        load(l, t, k, &tn, where, false);
+    }
+}
+
+static int key_kind(const c2type *t) { return t.kind == C2_PTR && t.of && t.of.kind == C2_CHAR ? 1 : 0; }
+
+static void load(loader *l, const c2type *t, void *p, docnode *n, string *where, bool xml) {
+    if (!t || !n) return;
+    if (n.kind == DOC_NULL && t.kind != C2_PTR) return;           // null: keeps the value
+    double d; long long i; bool integral;
+    switch (t.kind) {
+    case C2_BOOL: case C2_CHAR: case C2_INT: case C2_UINT: {
+        const docnode *s = scalar_of(n);
+        if (!number_of(s, &d, &i, &integral) || !integral) { problem(l, where.data(), "an integer expected, not %s", kind_name(s)); return; }
+        if (t.kind == C2_BOOL) i = i != 0;
+        else i = (long long)in_clamp(l, (double)i, where, true);
+        if (!fits(t, i)) { problem(l, where.data(), "%lld doesn't fit a %s", i, t.name); return; }
+        put_int(t, p, i);
+        return;
+    }
+    case C2_FLOAT: {
+        const docnode *s = scalar_of(n);
+        if (!number_of(s, &d, &i, &integral)) { problem(l, where.data(), "a number expected, not %s", kind_name(s)); return; }
+        d = in_clamp(l, d, where, false);
+        if (t.size == 4) *(float *)p = (float)d; else *(double *)p = d;
+        return;
+    }
+    case C2_ENUM: {
+        const docnode *s = scalar_of(n);
+        if (s.kind == DOC_TEXT) {
+            for (int k = 0; k < t.count; k++) if (!strcmp(t.values[k].name, s.s)) { put_int(t.of, p, t.values[k].value); return; }
+        }
+        if (number_of(s, &d, &i, &integral) && integral) { put_int(t.of, p, i); return; }
+        problem(l, where.data(), "a %s expected (%s%s...), not %s%s%s", t.name, t.count ? t.values[0].name : "",
+                t.count > 1 ? ", " : "", s.kind == DOC_TEXT ? "'" : "", s.kind == DOC_TEXT ? s.s : kind_name(s), s.kind == DOC_TEXT ? "'" : "");
+        return;
+    }
+    case C2_STRING: {
+        const docnode *s = scalar_of(n);
+        if (s.kind != DOC_TEXT) { problem(l, where.data(), "text expected, not %s", kind_name(s)); return; }
+        string_free((string *)p);
+        *(string *)p = string(s.s, in_maxlen(l, s.s, strlen(s.s), where));
+        return;
+    }
+    case C2_PTR: case C2_UNION: case C2_FUNC: case C2_VOID: return;   // not loaded (pointers: not owned)
+    case C2_ARRAY: {
+        if (t.of && t.of.kind == C2_CHAR) {                       // char [N]: text, cut to fit
+            const docnode *s = scalar_of(n);
+            if (s.kind != DOC_TEXT) { problem(l, where.data(), "text expected, not %s", kind_name(s)); return; }
+            size_t len = in_maxlen(l, s.s, strlen(s.s), where);
+            if (len >= (size_t)t.count) { problem(l, where.data(), "text longer than %d characters", t.count - 1); len = (size_t)t.count - 1; }
+            memset(p, 0, (size_t)t.count);
+            memcpy(p, s.s, len);
+            return;
+        }
+        if (!is_sequence(n, xml)) { problem(l, where.data(), "a list expected, not %s", kind_name(n)); return; }
+        int cnt = seq_count(n);
+        if (cnt > t.count) problem(l, where.data(), "%d items, for %d places", cnt, t.count);
+        for (int k = 0; k < cnt && k < t.count; k++) {
+            size_t mark = where.len();
+            where.appendf("[%d]", k);
+            load(l, t.of, (char *)p + (size_t)k * t.of.size, seq_item(n, k), where, xml);
+            where.truncate(mark);
+        }
+        return;
+    }
+    case C2_DYNARRAY: case C2_SET: {
+        if (!is_sequence(n, xml)) { problem(l, where.data(), "a list expected, not %s", kind_name(n)); return; }
+        int cnt = seq_count(n);
+        if (t.kind == C2_DYNARRAY) {
+            char *a = *(char **)p;
+            for (size_t k = 0; t.of.free && k < array_count(a); k++) t.of.free(a + k * t.of.size);   // the old items
+            if (a) free((array_header *)a - 1);
+            a = NULL;
+            if (cnt) {
+                a = array_grow_(NULL, (size_t)cnt, t.of.size);
+                memset(a, 0, (size_t)cnt * t.of.size);
+                ((array_header *)a - 1).count = (size_t)cnt;
+            }
+            *(char **)p = a;
+            for (int k = 0; k < cnt; k++) {
+                size_t mark = where.len();
+                where.appendf("[%d]", k);
+                load(l, t.of, a + (size_t)k * t.of.size, seq_item(n, k), where, xml);
+                where.truncate(mark);
+            }
+        } else {
+            size_t esize = round_to(t.of.size, t.of.align);
+            map_free_(*(void **)p, esize, key_kind(t.of), t.of.keyops);
+            void *m = NULL;
+            char key[256];
+            for (int k = 0; k < cnt && t.of.size <= (int)sizeof key; k++) {
+                memset(key, 0, sizeof key);
+                size_t mark = where.len();
+                where.appendf("[%d]", k);
+                docnode *item = seq_item(n, k);
+                const docnode *s = scalar_of(item);
+                if (s.kind == DOC_TEXT && t.of.kind != C2_STRUCT) load_key(l, t.of, key, s.s, where);
+                else load(l, t.of, key, item, where, xml);
+                size_t at; int added;
+                m = map_put_(m, key, esize, (size_t)t.of.size, key_kind(t.of), &at, &added, t.of.keyops);
+                if (t.of.keyops && t.of.keyops[3]) ((void (*)(void *))t.of.keyops[3])(key);   // the map made its own copy
+                where.truncate(mark);
+            }
+            *(void **)p = m;
+        }
+        return;
+    }
+    case C2_MAP: {
+        int ka = t.of.align, va = t.val.align;
+        size_t voff = round_to(t.of.size, va), esize = round_to(voff + t.val.size, ka > va ? ka : va);
+        char *old = *(char **)p;
+        for (size_t k = 0; t.val.free && k < map_count(old); k++) t.val.free(old + k * esize + voff);
+        map_free_(old, esize, key_kind(t.of), t.of.keyops);
+        void *m = NULL;
+        char key[256];
+        if (t.of.size > (int)sizeof key) return;
+        int cnt = n.kind == DOC_LIST ? n.count : n.kind == DOC_OBJECT ? n.count : 0;
+        if (n.kind != DOC_LIST && n.kind != DOC_OBJECT) { problem(l, where.data(), "an object or a list expected, not %s", kind_name(n)); return; }
+        for (int k = 0; k < cnt; k++) {
+            docnode *e = &n.items[k], *vn = NULL;
+            if (e.attribute || (e.name && !strcmp(e.name, "$"))) continue;
+            memset(key, 0, sizeof key);
+            size_t mark = where.len();
+            if (xml) {                                            // <item key="...">value</item>
+                const char *kt = docnode_text(e, "@key", NULL);
+                if (!kt) { where.appendf("[%d]", k); problem(l, where.data(), "an item without key=\"...\""); where.truncate(mark); continue; }
+                where.appendf("[%s]", kt);
+                load_key(l, t.of, key, kt, where);
+                vn = e;
+            } else if (n.kind == DOC_OBJECT) {                    // { key: value }
+                where.appendf("[%s]", e.name);
+                load_key(l, t.of, key, e.name, where);
+                vn = e;
+            } else {                                              // [[key, value], ...]
+                where.appendf("[%d]", k);
+                if (e.kind != DOC_LIST || e.count != 2) { problem(l, where.data(), "a [key, value] pair expected"); where.truncate(mark); continue; }
+                load(l, t.of, key, &e.items[0], where, xml);
+                vn = &e.items[1];
+            }
+            size_t at; int added;
+            m = map_put_(m, key, esize, (size_t)t.of.size, key_kind(t.of), &at, &added, t.of.keyops);
+            if (t.of.keyops && t.of.keyops[3]) ((void (*)(void *))t.of.keyops[3])(key);   // the map made its own copy
+            char *slot = (char *)m + at * esize + voff;
+            memset(slot, 0, (size_t)t.val.size);
+            load(l, t.val, slot, vn, where, xml);
+            if (!t.of.keyops && t.of.kind == C2_STRING && !added) string_free((string *)key);
+            where.truncate(mark);
+        }
+        *(void **)p = m;
+        return;
+    }
+    case C2_STRUCT: {
+        if (n.kind != DOC_OBJECT) { problem(l, where.data(), "an object expected, not %s", kind_name(n)); return; }
+        for (int k = 0; k < t.count; k++) {
+            const c2field *f = &t.fields[k];
+            if ((f.flags & C2_SKIP) || !f.type) continue;
+            if (!f.name[0] && f.type.kind == C2_STRUCT) { load(l, f.type, (char *)p + f.offset, n, where, xml); continue; }
+            const char *name = f.key ? f.key : f.name;
+            docnode *c = docnode_child(n, name);
+            if (!c && xml) {                                      // an attribute, as XML may say it
+                char at[80];
+                snprintf(at, sizeof at, "@%s", name);
+                c = docnode_child(n, at);
+            }
+            if (!c) continue;                                     // missing: keeps its value
+            size_t mark = where.len();
+            where.appendf(".%s", name);
+            const c2field *meta = l.meta;
+            l.meta = f;
+            if (f.bits) load_bits(l, f.type, (char *)p + f.offset, f.bits, f.bitpos, c, where);
+            else load(l, f.type, (char *)p + f.offset, c, where, xml);
+            l.meta = meta;
+            where.truncate(mark);
+        }
+        return;
+    }
+    }
+}
+
+
+// fills p (of type t) from a parsed document; false if the document had an error or a value didn't fit
+// (errors, if given, gets a line per problem: "hero.bag[1].count: an integer expected, not text")
+[[export]] bool doc_load(doc *d, const c2type *t, void *p, string *errors = NULL, const char *what = "value") {
+    if (d.error[0]) { if (errors) errors.appendf("%s\n", d.error); return false; }
+    loader l = {errors, true, NULL};
+    string where = string(what);
+    defer where.free();
+    load(&l, t, p, &d.root, &where, d.root.name != NULL);
+    return l.ok;
+}
+
+static bool is_xml_path(const char *path) {          // .xml (any case): XML; anything else: JSON5
+    size_t n = strlen(path);
+    return n >= 4 && path[n - 4] == '.' && tolower((unsigned char)path[n - 3]) == 'x' &&
+           tolower((unsigned char)path[n - 2]) == 'm' && tolower((unsigned char)path[n - 1]) == 'l';
+}
+static const char *any_name(any v) { return v.field ? v.field.name : v.type ? v.type.name : "value"; }
+
+// x.json5(), x.xml(): x as text
+[[export]] string any_json5(any v) { return v.type && !v.bits ? json5_text(v.type, v.p) : any_text(v); }
+[[export]] string any_xml(any v) { return v.type && !v.bits ? xml_text_of(v.type, v.p) : any_text(v); }
+// x.save("hero.json5"): the file replaced whole, or not at all (false, errno set); a .xml path saves XML
+[[export]] bool any_save(any v, const char *path) {
+    if (!v.type || v.bits) { errno = EINVAL; return false; }
+    return is_xml_path(path) ? xml_save(path, v.type, v.p) : json5_save(path, v.type, v.p);
+}
+// x.load("hero.json5" [, &errors]): reads the file into x (JSON5, or XML for a .xml path).  Fields
+// are found by name; missing ones keep their values; what doesn't fit is reported and the rest loads
+[[export]] bool any_load(any v, const char *path, string *errors = NULL) {
+    if (!v.type || v.bits) { if (errors) errors.appendf("%s: nothing to load into\n", path); return false; }
+    doc d = is_xml_path(path) ? xml_open(path) : json5_open(path);
+    bool ok = doc_load(&d, v.type, v.p, errors, any_name(v));
+    d.free();
+    return ok;
+}
+// x.parse(text [, &errors]): as load, from text (XML when it starts with '<', else JSON5)
+[[export]] bool any_parse(any v, const char *text, string *errors = NULL) {
+    if (!v.type || v.bits) { if (errors) errors.appendf("nothing to parse into\n"); return false; }
+    const char *t = text;
+    while (*t == ' ' || *t == '\t' || *t == '\r' || *t == '\n') t++;
+    doc d = *t == '<' ? xml_parse(text) : json5_parse(text);
+    bool ok = doc_load(&d, v.type, v.p, errors, any_name(v));
+    d.free();
+    return ok;
+}
+
+// x.set("250"): x's value from text: a JSON5 value ("42", "[1, 2]", "{x: 3}"), or, for text and enums,
+// the text itself (Ada, WARRIOR); a field's [[clamp]] applies.  global("hero.hp").set("250")
+[[export]] bool any_set(any r, const char *text, string *errors = NULL, const char *what = NULL) {
+    if (!what) what = any_name(r);
+    if (!r.type) { if (errors) errors.appendf("%s: not found\n", what); return false; }
+    doc d = json5_parse(text);
+    defer d.free();
+    docnode raw = {.kind = DOC_TEXT, .s = text};
+    docnode *n = &d.root;
+    bool texty = r.type.kind == C2_STRING || r.type.kind == C2_ENUM || (r.type.kind == C2_ARRAY && r.type.of && r.type.of.kind == C2_CHAR);
+    if (d.error[0] || (texty && n.kind != DOC_TEXT && n.kind != DOC_INT)) {
+        if (!texty) { if (errors) errors.appendf("%s: %s\n", what, d.error); return false; }
+        n = &raw;
+    }
+    loader l = {errors, true, r.field};
+    string where = string(what);
+    defer where.free();
+    if (r.bits) load_bits(&l, r.type, r.p, r.bits, r.bitpos, n, &where);
+    else load(&l, r.type, r.p, n, &where, false);
+    return l.ok;
+}
+
+
+// ---------------------------------------------------------------------------- calling by name
+
+static const char *skip_sp(const char *s) { while (*s == ' ' || *s == '\t') s++; return s; }
+static size_t arg_end(const char *s) {               // the end of one argument: a ',' or ')' outside brackets and quotes
+    int depth = 0;
+    const char *p = s;
+    for (; *p; p++) {
+        if (*p == '"' || *p == '\'') { char q = *p; for (p++; *p && *p != q; p++) if (*p == '\\' && p[1]) p++; if (!*p) break; continue; }
+        if (*p == '(' || *p == '[' || *p == '{') depth++;
+        else if ((*p == ')' || *p == ']' || *p == '}') && depth) depth--;
+        else if ((*p == ',' || *p == ')') && !depth) break;
+    }
+    return (size_t)(p - s);
+}
+static bool same_type(const c2type *a, const c2type *b) { return a == b || (a && b && a.kind == b.kind && a.size == b.size && !strcmp(a.name, b.name)); }
+
+static const c2func *function_named(const c2func *fs, const char *name, size_t n) {
+    for (const c2func *f = fs; f && f.name; f++) if (strlen(f.name) == n && !strncmp(f.name, name, n)) return f;
+    return NULL;
+}
+
+// runs a call written as text: "heal(hero, 20)", "heal(hero, amount: 20)", "hero.heal(20)" (Hero_heal,
+// or heal, with &hero first).  An argument is a global or a part of one ("hero", "hero.pos": passed
+// as itself, or its address to a pointer parameter), or a value as set() reads it ("20", "'Ada'",
+// "MAGE", "{x: 1, y: 2}", "null").  Missing optional parameters take their defaults.  The result, if
+// any, is appended to *result as print() writes it; what went wrong to *errors.  false: not called.
+[[export]] bool eval_(const c2func *fs, const c2global *gs, const char *text, string *result = NULL, string *errors = NULL) {
+    const char *s = skip_sp(text);
+    const char *open = strchr(s, '(');
+    if (!open) { if (errors) errors.appendf("%s: '(' expected\n", text); return false; }
+    const char *name = s;
+    size_t n = (size_t)(open - s);
+    while (n && (name[n - 1] == ' ' || name[n - 1] == '\t')) n--;
+    any recv = {};
+    const c2func *f = NULL;
+    const char *dot = NULL;
+    for (const char *p = name; p < name + n; p++) if (*p == '.') dot = p;
+    if (dot) {                                         // receiver.method(...)
+        string path = string(name, (size_t)(dot - name));
+        recv = reflect_global(gs, path.data());
+        path.free();
+        if (!recv.type) { if (errors) errors.appendf("%.*s: no such global\n", (int)(dot - name), name); return false; }
+        const char *m = dot + 1;
+        size_t mn = (size_t)(name + n - m);
+        string full = {};
+        full.appendf("%s_%.*s", recv.type.kind == C2_PTR && recv.type.of ? recv.type.of.name : recv.type.name, (int)mn, m);
+        f = function_named(fs, full.data(), full.len());
+        full.free();
+        if (!f) f = function_named(fs, m, mn);
+        if (!f) { if (errors) errors.appendf("%.*s: no function %.*s for a %s\n", (int)n, name, (int)mn, m, recv.type.name); return false; }
+    } else {
+        f = function_named(fs, name, n);
+        if (!f) { if (errors) errors.appendf("%.*s: no such function\n", (int)n, name); return false; }
+    }
+    void *args[16] = {};
+    void *temps[16] = {};                              // what this call made, freed after it
+    const c2type *temp_t[16] = {};
+    void *ptrs[16] = {};                               // pointers passed: their storage
+    bool ok = true;
+    int next = 0;
+    if (dot) {                                         // the receiver: the first parameter
+        const c2type *pt = f.count ? f.params[0].type : NULL;
+        if (pt && pt.kind == C2_PTR && same_type(pt.of, recv.type)) { ptrs[0] = recv.p; args[0] = &ptrs[0]; }
+        else if (pt && same_type(pt, recv.type) && !recv.bits) args[0] = recv.p;
+        else { if (errors) errors.appendf("%s: its first parameter isn't a %s\n", f.name, recv.type.name); return false; }
+        next = 1;
+    }
+    const char *a = skip_sp(open + 1);
+    while (ok && *a && *a != ')') {
+        size_t len = arg_end(a);
+        const char *v = a;
+        size_t vn = len;
+        while (vn && (v[vn - 1] == ' ' || v[vn - 1] == '\t')) vn--;
+        int at = next;
+        const char *colon = NULL;                      // amount: 20
+        for (const char *p = v; p < v + vn && (isalnum((unsigned char)*p) || *p == '_'); p++) if (p[1] == ':' || (p[1] == ' ' && skip_sp(p + 1)[0] == ':')) { colon = p + 1; break; }
+        if (colon && colon > v) {
+            size_t kn = (size_t)(colon - v);
+            at = -1;
+            for (int i = 0; i < f.count; i++) if (strlen(f.params[i].name) == kn && !strncmp(f.params[i].name, v, kn)) at = i;
+            if (at < 0) { if (errors) errors.appendf("%s has no parameter %.*s\n", f.name, (int)kn, v); ok = false; break; }
+            v = skip_sp(strchr(colon, ':') + 1);
+            vn = (size_t)(a + len - v);
+            while (vn && (v[vn - 1] == ' ' || v[vn - 1] == '\t')) vn--;
+        } else next++;
+        if (at >= f.count) { if (errors) errors.appendf("%s takes %d argument%s\n", f.name, f.count, f.count == 1 ? "" : "s"); ok = false; break; }
+        if (args[at]) { if (errors) errors.appendf("%s: %s given twice\n", f.name, f.params[at].name); ok = false; break; }
+        const c2type *pt = f.params[at].type;
+        string arg = string(v, vn);
+        any g = isalpha((unsigned char)*v) || *v == '_' ? reflect_global(gs, arg.data()) : (any){};
+        if (g.type && !g.bits && pt.kind == C2_PTR && same_type(pt.of, g.type)) { ptrs[at] = g.p; args[at] = &ptrs[at]; }
+        else if (g.type && !g.bits && same_type(pt, g.type)) args[at] = g.p;
+        else if (pt.kind == C2_PTR && (!strcmp(arg.data(), "null") || !strcmp(arg.data(), "NULL"))) { ptrs[at] = NULL; args[at] = &ptrs[at]; }
+        else if (pt.kind == C2_PTR && pt.of && pt.of.kind == C2_CHAR) {   // text for a const char *
+            doc d = json5_parse(arg.data());
+            const char *t = !d.error[0] && d.root.kind == DOC_TEXT ? d.root.s : arg.data();
+            temps[at] = strdup(t);
+            ptrs[at] = temps[at];
+            args[at] = &ptrs[at];
+            d.free();
+        } else {
+            temps[at] = calloc(1, pt.size + 16);
+            temp_t[at] = pt;
+            string where = {};
+            where.appendf("%s: %s", f.name, f.params[at].name);
+            if (!any_set((any){pt, temps[at]}, arg.data(), errors, where.data())) ok = false;
+            where.free();
+            args[at] = temps[at];
+        }
+        arg.free();
+        a = skip_sp(a + len);
+        if (*a == ',') a = skip_sp(a + 1);
+    }
+    for (int i = 0; ok && i < f.count; i++)
+        if (!args[i] && !f.params[i].optional) { if (errors) errors.appendf("%s: %s missing\n", f.name, f.params[i].name); ok = false; }
+    if (ok) {
+        void *r = f.ret ? calloc(1, f.ret.size + 16) : NULL;
+        f.call(args, r);
+        if (r) {
+            if (result) value_append(result, f.ret, r);
+            if (f.ret.free) f.ret.free(r);
+            free(r);
+        }
+    }
+    for (int i = 0; i < 16; i++) {
+        if (temp_t[i] && temp_t[i].free) temp_t[i].free(temps[i]);
+        free(temps[i]);
+    }
+    return ok;
+}
+// eval("heal(hero, 20)" [, &result [, &errors]]): calls one of the program's functions by name
+#define eval(...) eval_(reflect_functions(), reflect_globals(), __VA_ARGS__)
+#export eval

@@ -1,0 +1,6 @@
+// a module whose overloads are all exported (tests/c2/overload_module.c2)
+[[export]] struct circle { float r; };
+[[export]] struct square { float side; };
+[[export]] float area(circle c) { return 3 * c.r * c.r; }
+[[export]] float area(square s) { return s.side * s.side; }
+[[export]] float total(circle c, square s) { return area(c) + area(s); }

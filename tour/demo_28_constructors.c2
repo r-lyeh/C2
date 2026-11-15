@@ -1,0 +1,6 @@
+// T(...) builds a T, fields in order or by name (named arguments, again); missing ones are zero.
+struct vec3 { float x, y, z; };
+int main() {
+    vec3 a = vec3(1, 2, 3), b = vec3(z: 9), c = vec3();
+    printf("%g %g %g | %g %g %g | %g\n", a.x, a.y, a.z, b.x, b.y, b.z, c.x);
+}

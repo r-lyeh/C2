@@ -1,0 +1,13 @@
+// [[copy]] completes [[destructor]]: copying a named value (b = a, putting it in an array, returning a
+// member) calls the copy function, so each owner frees its own.  Temporaries still just move.
+struct buf { char *p; };
+buf buf(const char *s) { return (buf){strdup(s)}; }
+[[destructor]] void buf_free(buf *b) { free(b.p); b.p = NULL; }
+[[copy]] buf buf_copy(const buf *b) { return buf(b.p); }
+int main() {
+    buf a = buf("hello");
+    buf b = a;                      // a copy, with memory of its own
+    b.p[0] = 'j';
+    printf("%s %s\n", a.p, b.p);    // hello jello
+    a.free(); b.free();             // each frees its own
+}

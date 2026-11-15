@@ -1,0 +1,5 @@
+// flags: -g
+// c2 -g: a bad pointer (SIGSEGV) prints the call stack
+void set(int *p) { *p = 1; }
+void level(int n) { if (n == 0) set(0); else level(n - 1); }
+int main() { level(2); }

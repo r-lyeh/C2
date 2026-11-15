@@ -1,0 +1,38 @@
+// runtime/coro.c2: coroutines, functions that pause and continue later, each on a stack of its own
+// (minicoro, in 3rd/).  A game's cutscenes, AI and dialogs read as straight code instead of state
+// machines: the coroutine runs until co_yield(), and the next co_resume() continues right after it.
+//
+//   void patrol(void *arg) { for (int i = 0; i < 3; i++) { walk_to(i); co_yield(); } }
+//   co *c = co_create(patrol);
+//   while (c.resume()) next_frame();       // co_resume: true while it can go on, false once it returned
+//   c.free();
+//
+// A hot reload is refused while a coroutine is suspended: its stack returns into the old program.
+// Let it finish (or co_free it) first.  Stacks are 1 MB unless co_create says otherwise; the system
+// only backs the pages a coroutine actually touches, so a shallow one costs a few KB of RAM.
+// A module: #import "runtime/coro" (part of #import "runtime").
+
+[[export]] enum { CO_DEAD, CO_NORMAL, CO_RUNNING, CO_SUSPENDED };   // co_status()
+[[export]] struct co { int opaque_; };                              // only ever used through a pointer
+
+void *__c2_co_create(void (*fn)(void *), void *arg, size_t stack);  // the host's glue (c2.c)
+int __c2_co_resume(void *c);
+void __c2_co_yield(void);
+int __c2_co_status(void *c);
+void *__c2_co_running(void);
+void __c2_co_destroy(void *c);
+
+// a coroutine that will run fn(arg); NULL if out of memory.  It starts at the first co_resume.
+[[export]] co *co_create(void (*fn)(void *arg), void *arg = NULL, size_t stack = 0) {
+    return (co *)__c2_co_create(fn, arg, stack);
+}
+// runs c until its next co_yield() or its end: true if it can be resumed again
+[[export]] bool co_resume(co *c) { return __c2_co_resume(c) != 0; }
+// inside a coroutine: pause here, back to whoever called co_resume
+[[export]] void co_yield(void) { __c2_co_yield(); }
+[[export]] int co_status(co *c) { return __c2_co_status(c); }
+[[export]] bool co_done(co *c) { return __c2_co_status(c) == CO_DEAD; }
+// the running coroutine, NULL outside of one
+[[export]] co *co_running(void) { return (co *)__c2_co_running(); }
+// frees c and its stack (a suspended one is dropped where it was)
+[[export]] void co_free(co *c) { __c2_co_destroy(c); }

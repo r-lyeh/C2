@@ -1,0 +1,1 @@
+:2: error: string(x) with x a string already: x.copy() makes a second one

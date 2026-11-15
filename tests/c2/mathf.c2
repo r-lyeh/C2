@@ -1,0 +1,14 @@
+// math.h: the float variants (sinhf, lrintf, fmaf...) and fpclassify
+int main() {
+    float x = 0.5f; int e; float ip; int q;
+    printf("%.4f %.4f %.4f %.4f %.4f %.4f\n", sinhf(x), coshf(x), tanhf(x), asinhf(x), acoshf(1.5f), atanhf(x));
+    printf("%.4f %.4f %.4f %d %.4f %.4f\n", expm1f(x), log1pf(x), logbf(8.f), ilogbf(8.f), erff(x), erfcf(x));
+    printf("%.4f %.4f %.4f %.4f\n", lgammaf(3.5f), tgammaf(3.5f), nearbyintf(2.5f), rintf(3.5f));
+    float fr = frexpf(12.f, &e), mo = modff(3.25f, &ip);
+    printf("%.4f %d %.4f %.4f %.4f %.4f\n", fr, e, ldexpf(1.5f, 3), mo, ip, scalbnf(1.f, 4));
+    printf("%.4f %ld %ld %lld %lld\n", scalblnf(1.f, 5), lrintf(2.5f), lroundf(2.5f), llrintf(3.5f), llroundf(-2.5f));
+    float rq = remquof(7.f, 3.f, &q);
+    printf("%.4f %.4f %d %.6g %.4f %.4f\n", remainderf(7.f, 3.f), rq, q, nextafterf(1.f, 2.f) - 1.f, fdimf(5.f, 3.f), fmaf(2.f, 3.f, 1.f));
+    printf("%d %d %d %d %d\n", fpclassify(0.0), fpclassify(1.0f) == FP_NORMAL, fpclassify(1e-40f) == FP_SUBNORMAL, fpclassify(1.0 / 0.0) == FP_INFINITE, fpclassify(nan("")) == FP_NAN);
+    printf("%.6g\n", nexttowardf(1.f, 2.0) - 1.f);
+}
